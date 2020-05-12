@@ -219,6 +219,38 @@ afterLoadingGniDriverUnblacklistAddresses(const char *start1, const char *end1,
   mtcp_sys_munmap(start2, len2);
 }
 
+#define min(a,b) (a < b ? a : b)
+#define max(a,b) (a > b ? a : b)
+int discover_union_ckpt_images(char *argv[],
+	                        char **libsStart, char **libsEnd,
+	                        char **highMemStart) {
+  MtcpHeader mtcpHdr;
+  int rank;
+  *libsStart = (void *)(-1); // We'll take a min later.
+  *libsEnd = NULL; // We'll take a max later.
+  *highMemStart = (void *)(-1); // We'll take a min later.
+  for (rank = 0; ; rank++) {
+    char *ckptImage = getCkptImageByRank(rank, argv);
+    // FIXME: This code is duplicated from below.  Refactor it.
+    int rc = -1;
+    int fd = mtcp_sys_open2(ckptImage, O_RDONLY);
+    if (fd == -1) {
+      MTCP_PRINTF("***ERROR opening ckpt image (%s); errno: %d\n",
+                  ckptImage, mtcp_sys_errno);
+      mtcp_abort();
+    }
+    do {
+      rc = mtcp_readfile(fd, &mtcpHdr, sizeof mtcpHdr);
+    } while (rc > 0 && mtcp_strcmp(mtcpHdr.signature, MTCP_SIGNATURE) != 0);
+    if (rc == 0) { /* if end of file */
+      MTCP_PRINTF("***ERROR: ckpt image doesn't match MTCP_SIGNATURE\n");
+      return 1;  /* exit with error code 1 */
+    }
+    *libsStart = min(*libsStart, (char *)mtcpHdr.libsStart);
+    *libsEnd = max(*libsEnd, (char *)mtcpHdr.libsEnd);
+    *highMemStart = min(*highMemStart, (char *)mtcpHdr.highMemStart);
+  }
+}
 
 #define shift argv++; argc--;
 NO_OPTIMIZE
@@ -343,13 +375,31 @@ main(int argc, char *argv[], char **environ)
       }
     }
 
+    char *libsStart;   // used by MPI: start of where kernel mmap's libraries
+    char *libsEnd;     // used by MPI: end of where kernel mmap's libraries
+    char *highMemStart;// used by MPI: start of memory beyond libraries
+    discover_union_ckpt_images(argv, &libsStart, &libsEnd, &highMemStart);
+
+    // This creates the lower half and copies the bits to this address space
     splitProcess(argv0, environ);
     int rank = -1;
     // Refer to "blocked memory" in MANA Plugin Documentation for the addresses
-    const char *start1 = (const void*)0x2aaaaaab0000;
-    const char *end1 = (const void*)0x2aaaaaaf8000;
-    const char *start2 = (const void*)0x2aaaaab1b000;
+    // FIXME: start1, end1
+    // FIXME:  How to find end of vdso of mtcp_restart dynamically
+#if 1
+    // Block-1 goes from end-of-heap of upper half 0x732000
+    //   and end of lower-half text/data to libsStart 0xf0000000
+    const char *start1 = (const void*)0xf0000000;  // end of lower-half text/data
+    const char *end1 = (const void*)0x2aaaaaaae000; // libsStart
+    const char *start2 = libsStart; // 0x2aaaaaaab000 (libsStart)
     const char *end2 = g_range->start;
+#else
+    // Or Block-1 can be the first half of the libs of upper half
+    const char *start1 = (const void*)0x2aaaaaaa0000; // libsStart
+    const char *end1 = (const void*)0x2aaaaaaf8000;   // end of heap
+    const char *start2 = libsStart;
+    const char *end2 = g_range->start;
+#endif
     beforeLoadingGniDriverBlacklistAddresses(start1, end1, start2, end2);
     JUMP_TO_LOWER_HALF(info.fsaddr);
     rank = ((getRankFptr_t)info.getRankFptr)();
