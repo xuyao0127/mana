@@ -201,10 +201,13 @@ beforeLoadingGniDriverBlacklistAddresses(const char *start1, const char *end1,
                              PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
                              -1, 0);
   MTCP_ASSERT(addr == start1);
-  addr = mtcp_sys_mmap(start2, len2,
-                       PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
-                       -1, 0);
-  MTCP_ASSERT(addr == start2);
+  
+  if(len2>0){
+    addr = mtcp_sys_mmap(start2, len2,
+                         PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
+                         -1, 0);
+    MTCP_ASSERT(addr == start2);
+  }
 }
 
 static void
@@ -216,6 +219,7 @@ afterLoadingGniDriverUnblacklistAddresses(const char *start1, const char *end1,
   const size_t len2 = end2 - start2;
 
   mtcp_sys_munmap(start1, len1);
+  if(len2>0)
   mtcp_sys_munmap(start2, len2);
 }
 
@@ -346,10 +350,11 @@ main(int argc, char *argv[], char **environ)
     splitProcess(argv0, environ);
     int rank = -1;
     // Refer to "blocked memory" in MANA Plugin Documentation for the addresses
-    const char *start1 = (const void*)0x2aaaaaab0000;
-    const char *end1 = (const void*)0x2aaaaaaf8000;
-    const char *start2 = (const void*)0x2aaaaab1b000;
-    const char *end2 = g_range->start;
+    const char *start1 = (const void*)0x2aaaaaaaf000;
+    const char *end1 = (const void*)g_range->start;
+    const char *start2 = 0;
+    const char *end2 = 0;
+    
     beforeLoadingGniDriverBlacklistAddresses(start1, end1, start2, end2);
     JUMP_TO_LOWER_HALF(info.fsaddr);
     rank = ((getRankFptr_t)info.getRankFptr)();

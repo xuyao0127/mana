@@ -14,7 +14,7 @@
 #include <unistd.h>
 
 int main(int argc, char** argv) {
-  const int PING_PONG_LIMIT = 10;
+  const int PING_PONG_LIMIT = 100;
 
   // Initialize the MPI environment
   MPI_Init(NULL, NULL);
