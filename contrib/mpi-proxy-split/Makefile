@@ -39,12 +39,13 @@ JALIB_INCLUDE=${DMTCP_ROOT}/jalib
 
 override CFLAGS += -g3 -O0 -fPIC -I${DMTCP_INCLUDE} -I${LOWER_HALF_SRCDIR} -std=gnu11
 override CXXFLAGS += -g3 -O0 -fPIC -I${DMTCP_INCLUDE} -I${JALIB_INCLUDE} \
+                     -I${WRAPPERS_SRCDIR} -I. \
                      -I${DMTCP_ROOT}/src -I${LOWER_HALF_SRCDIR} -std=c++11
 
 default: ${LIBNAME}.so ${LOWER_HALF_SRCDIR}/${PROXY_BIN} ${WRAPPERS_SRCDIR}/libmpidummy.so ${WRAPPERS_SRCDIR}/libmpich_intel.so.3
 
-${LIBNAME}.so: ${LIBOBJS} ${WRAPPERS_SRCDIR}/*.o
-	${MPICXX} -shared -fPIC -g3 -O0 -o $@ $^
+${LIBNAME}.so: ${LIBOBJS} ${WRAPPERS_SRCDIR}/${LIBWRAPPER}
+	${MPICXX} -shared -fPIC -g3 -O0 -o $@ ${LIBOBJS} -Wl,--whole-archive ${WRAPPERS_SRCDIR}/${LIBWRAPPER} -Wl,--no-whole-archive
 
 mpi_unimplemented_wrappers.cpp: generate-mpi-unimplemented-wrappers.py mpi_unimplemented_wrappers.txt
 	python $^ > $@

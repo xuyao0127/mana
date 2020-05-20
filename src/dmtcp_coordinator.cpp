@@ -430,6 +430,7 @@ typedef struct __send_recv_totals
 } send_recv_totals_t;
 
 static map<CoordClient*, phase_t> clientPhases;
+typedef map<CoordClient*, phase_t>::value_type PhaseKVPair;
 
 static std::ostream&
 operator<<(std::ostream &os, const phase_t &st)
@@ -448,6 +449,8 @@ operator<<(std::ostream &os, const phase_t &st)
 }
 
 static map<CoordClient*, rank_state_t> clientStates;
+typedef map<CoordClient*, rank_state_t>::value_type RankKVPair;
+typedef map<CoordClient*, rank_state_t>::const_iterator RankConstIterator;
 
 #define MPI_SEND_RECV_DB  "SR_DB"
 #define MPI_US_DB         "US_DB"
@@ -465,22 +468,22 @@ typedef struct __wr_counts
 static void
 printMpiDrainStatus()
 {
-  auto map = lookupService.getMap(MPI_SEND_RECV_DB);
+  const KeyValueMap* map = lookupService.getMap(MPI_SEND_RECV_DB);
   if (!map) {
     JTRACE("No send recv database");
     return;
   }
 
-  // TODO: Get rid of all the autos; perhaps use nested typedefs
-  auto sendSum = [](uint64_t sum, std::pair<KeyValue, KeyValue *> el)
+  typedef std::pair<KeyValue, KeyValue *> KVPair;
+  std::function<uint64_t(uint64_t, KVPair)> sendSum = [](uint64_t sum, KVPair el)
                  { send_recv_totals_t *obj =
                            (send_recv_totals_t*)el.second->data();
                     return sum + obj->sends; };
-  auto recvSum = [](uint64_t sum, std::pair<KeyValue, KeyValue *> el)
+  std::function<uint64_t(uint64_t, KVPair)> recvSum = [](uint64_t sum, KVPair el)
                  { send_recv_totals_t *obj =
                            (send_recv_totals_t*)el.second->data();
                     return sum + obj->recvs; };
-  auto indivStats = [](string str, std::pair<KeyValue, KeyValue *> el)
+  std::function<string(string, KVPair)> indivStats = [](string str, KVPair el)
                     { send_recv_totals_t *obj =
                               (send_recv_totals_t*)el.second->data();
                       ostringstream o;
@@ -502,13 +505,13 @@ printMpiDrainStatus()
   printf("%s\n", o.str().c_str());
   fflush(stdout);
 
-  auto map2 = lookupService.getMap(MPI_WRAPPER_DB);
+  const KeyValueMap* map2 = lookupService.getMap(MPI_WRAPPER_DB);
   if (!map2) {
     JTRACE("No wrapper database");
     return;
   }
 
-  auto rankStats = [](string str, std::pair<KeyValue, KeyValue *> el)
+  std::function<string(string, KVPair)> rankStats = [](string str, KVPair el)
                     { wr_counts_t *obj = (wr_counts_t*)el.second->data();
                       int rank = *(int*)el.first.data();
                       ostringstream o;
@@ -559,7 +562,7 @@ DmtcpCoordinator::printStatus(size_t numPeers, bool isRunning)
 
   if (mpiMode) {
     o << "Non-ready Rank States:" << std::endl;
-    for (auto c : clientPhases) {
+    for (PhaseKVPair c : clientPhases) {
       phase_t st = c.second;
       CoordClient *client = c.first;
       if (st != IS_READY && st != READY_FOR_CKPT) {
@@ -725,9 +728,8 @@ DmtcpCoordinator::recordCkptFilename(CoordClient *client, const char *extraData)
 static bool
 noRanksInCriticalSection(map<CoordClient*, rank_state_t>& clientStates)
 {
-  // TODO: Why are we using [=] here?
-  auto req = std::find_if(clientStates.begin(), clientStates.end(),
-                         [=](const std::pair<CoordClient*, rank_state_t> &elt)
+  RankConstIterator req = std::find_if(clientStates.begin(), clientStates.end(),
+                         [](const std::pair<CoordClient*, rank_state_t> &elt)
                          { return elt.second.st == IN_CS; });
   return req == std::end(clientStates);
 }
@@ -736,10 +738,9 @@ static bool
 allRanksReadyForCkpt(map<CoordClient*, rank_state_t>& clientStates,
                      long int size)
 {
-  // TODO: Why are we using [=] here?
-  auto numReadyRanks =
+  int numReadyRanks =
         std::count_if(clientStates.begin(), clientStates.end(),
-                      [=](const std::pair<CoordClient*, rank_state_t> &elt)
+                      [](const std::pair<CoordClient*, rank_state_t> &elt)
                       { return elt.second.st == READY_FOR_CKPT; });
   JTRACE("Ranks ready for ckpting")(numReadyRanks)(size);
   return numReadyRanks == size;
@@ -748,17 +749,17 @@ allRanksReadyForCkpt(map<CoordClient*, rank_state_t>& clientStates,
 static bool
 allRanksReady(map<CoordClient*, rank_state_t>& clientStates, long int size)
 {
-  auto numReadyRanks =
+  int numReadyRanks =
         std::count_if(clientStates.begin(), clientStates.end(),
-                      [=](const std::pair<CoordClient*, rank_state_t> &elt)
+                      [](const std::pair<CoordClient*, rank_state_t> &elt)
                       { return elt.second.st == IS_READY; });
-  auto numPhase1Ranks =
+  int numPhase1Ranks =
         std::count_if(clientStates.begin(), clientStates.end(),
-                      [=](const std::pair<CoordClient*, rank_state_t> &elt)
+                      [](const std::pair<CoordClient*, rank_state_t> &elt)
                       { return elt.second.st == PHASE_1; });
-  auto numPhase2Ranks =
+  int numPhase2Ranks =
         std::count_if(clientStates.begin(), clientStates.end(),
-                      [=](const std::pair<CoordClient*, rank_state_t> &elt)
+                      [](const std::pair<CoordClient*, rank_state_t> &elt)
                       { return elt.second.st == PHASE_2; });
   return ((numReadyRanks + numPhase1Ranks) == size) ||
          ((numReadyRanks + numPhase1Ranks + numPhase2Ranks) == size) ||
@@ -769,11 +770,11 @@ static void
 unblockRanks(map<CoordClient*, rank_state_t>& clientStates, long int size)
 {
   int count = 0;
-  for (auto c : clientStates) {
+  for (RankKVPair c : clientStates) {
     DmtcpMessage msg(DMT_DO_PRE_SUSPEND);
     if (c.second.st == PHASE_1 || c.second.st == PHASE_2) {
       // For ranks in PHASE_1 or in PHASE_2, send them a free pass to unblock
-      // them.
+      // other ranks stuck in critical section.
       JTRACE("Sending free pass to client")(c.first->identity())(c.second.st);
       query_t q(FREE_PASS);
       msg.extraBytes = sizeof q;
