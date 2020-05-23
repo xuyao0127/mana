@@ -25,6 +25,8 @@ int g_numMmaps = 0;
 MmapInfo_t *g_list = NULL;
 MemRange_t *g_range = NULL;
 
+MmapInfo_t uh_hugepages_mmap_list[MAX_MMAP_UH];
+int next_mmap_entry=0;
 // #define DEBUG
 
 #undef dmtcp_skip_memory_region_ckpting
@@ -41,35 +43,45 @@ regionContains(const void *haystackStart,
 EXTERNC int
 dmtcp_skip_memory_region_ckpting(const ProcMapsArea *area)
 {
-  if (area->addr == info.startTxt ||
-      strstr(area->name, "/dev/zero") ||
-      strstr(area->name, "/dev/kgni") ||
-      strstr(area->name, "/SYSV") ||
-      strstr(area->name, "/dev/xpmem") ||
-      strstr(area->name, "/dev/shm") ||
-      area->addr == info.startData) {
-    JTRACE("Ignoring region")(area->name)((void*)area->addr);
-    return 1;
-  }
-  if (!g_list) return 0;
-  for (int i = 0; i < g_numMmaps; i++) {
-    void *lhMmapStart = g_list[i].addr;
-    void *lhMmapEnd = (VA)g_list[i].addr + g_list[i].len;
-    if (!g_list[i].unmapped &&
-        regionContains(lhMmapStart, lhMmapEnd, area->addr, area->endAddr)) {
-      JTRACE("Ignoring region")
-           (area->name)((void*)area->addr)(area->size)
-           (lhMmapStart)(lhMmapEnd);
-      return 1;
-    } else if (!g_list[i].unmapped &&
-               regionContains(area->addr, area->endAddr,
-                              lhMmapStart, lhMmapEnd)) {
-      JTRACE("Unhandled case")
-           (area->name)((void*)area->addr)(area->size)
-           (lhMmapStart)(lhMmapEnd);
+  int start = 0;
+  while(start < next_mmap_entry){
+    if(uh_hugepages_mmap_list[i].addr==area->addr){
+      area->flags|=MAP_HUGETLB;
+      return 0;
     }
+    start++;
   }
-  return 0;
+  if(start == next_mmap_entry){
+    if (area->addr == info.startTxt ||
+        strstr(area->name, "/dev/zero") ||
+        strstr(area->name, "/dev/kgni") ||
+        strstr(area->name, "/SYSV") ||
+        strstr(area->name, "/dev/xpmem") ||
+        strstr(area->name, "/dev/shm") ||
+        area->addr == info.startData) {
+      JTRACE("Ignoring region")(area->name)((void*)area->addr);
+      return 1;
+    }
+    if (!g_list) return 0;
+    for (int i = 0; i < g_numMmaps; i++) {
+      void *lhMmapStart = g_list[i].addr;
+      void *lhMmapEnd = (VA)g_list[i].addr + g_list[i].len;
+      if (!g_list[i].unmapped &&
+          regionContains(lhMmapStart, lhMmapEnd, area->addr, area->endAddr)) {
+        JTRACE("Ignoring region")
+            (area->name)((void*)area->addr)(area->size)
+            (lhMmapStart)(lhMmapEnd);
+        return 1;
+      } else if (!g_list[i].unmapped &&
+                regionContains(area->addr, area->endAddr,
+                                lhMmapStart, lhMmapEnd)) {
+        JTRACE("Unhandled case")
+            (area->name)((void*)area->addr)(area->size)
+            (lhMmapStart)(lhMmapEnd);
+      }
+    }
+    return 0;
+  }
 }
 
 // Handler for SIGSEGV: forces the code into an infinite loop for attaching
@@ -166,6 +178,95 @@ static DmtcpBarrier mpiPluginBarriers[] = {
     "replay-async-receives" },
 };
 
+extern "C" int
+munmap(void *addr, size_t length)
+{
+  DMTCP_PLUGIN_DISABLE_CKPT();
+  int retval = _real_munmap(addr, length);
+  for(int i=0;i<next_mmap_entry;i++){
+    if(uh_hugepages_mmap_list[i].addr==addr){
+      uh_hugepages_mmap_list[i].unmapped=1;
+      break;
+    }
+  }
+  DMTCP_PLUGIN_ENABLE_CKPT();
+  return retval;
+}
+extern "C" void *mmap(void *addr, size_t length, int prot, int flags,
+                      int fd, off_t offset)
+{
+  DMTCP_PLUGIN_DISABLE_CKPT();
+  void *retval = _real_mmap(addr, length, prot, flags, fd, offset);  
+  if(flags&MAP_HUGETLB)
+  {
+    uh_hugepages_mmap_list[next_mmap_entry].addr=retval;
+    uh_hugepages_mmap_list[next_mmap_entry].len=length;
+    uh_hugepages_mmap_list[next_mmap_entry].unmapped=0; 
+    next_mmap_entry++;
+  }
+  DMTCP_PLUGIN_ENABLE_CKPT();
+  return retval;
+}
+
+extern "C" void *mmap64(void *addr, size_t length, int prot, int flags,
+                        int fd, off64_t offset)
+{
+  DMTCP_PLUGIN_DISABLE_CKPT();
+  void *retval = _real_mmap64(addr, length, prot, flags, fd, offset);
+  if(flags&MAP_HUGETLB)
+  {
+    uh_hugepages_mmap_list[next_mmap_entry].addr=retval;
+    uh_hugepages_mmap_list[next_mmap_entry].len=length;
+    uh_hugepages_mmap_list[next_mmap_entry].unmapped=0; 
+    next_mmap_entry++;
+  }
+  DMTCP_PLUGIN_ENABLE_CKPT();
+  return retval;
+}
+# if __GLIBC_PREREQ(2, 4)
+extern "C" void *mremap(void *old_address, size_t old_size,
+                        size_t new_size, int flags, ...)
+{
+  void *retval;
+
+  DMTCP_PLUGIN_DISABLE_CKPT();
+  if (flags == MREMAP_FIXED) {
+    va_list ap;
+    va_start(ap, flags);
+    void *new_address = va_arg(ap, void *);
+    va_end(ap);
+    retval = _real_mremap(old_address, old_size, new_size, flags, new_address);
+  } else {
+    retval = _real_mremap(old_address, old_size, new_size, flags);
+  }
+  for(int i=0;i<next_mmap_entry;i++){
+    if(uh_hugepages_mmap_list[i].addr==old_address){
+      uh_hugepages_mmap_list[i].addr=retval;
+      uh_hugepages_mmap_list[i].len=new_size;
+      break;
+    }
+  }
+  DMTCP_PLUGIN_ENABLE_CKPT();
+  return retval;
+}
+# else // if __GLIBC_PREREQ(2, 4)
+extern "C" void *mremap(void *old_address, size_t old_size,
+                        size_t new_size, int flags)
+{
+  DMTCP_PLUGIN_DISABLE_CKPT();
+  void *retval = _real_mremap(old_address, old_size, new_size, flags);
+  for(int i=0;i<next_mmap_entry;i++){
+    if(uh_hugepages_mmap_list[i].addr==old_address){
+      uh_hugepages_mmap_list[i].addr=retval;
+      uh_hugepages_mmap_list[i].len=new_size;
+      break;
+    }
+  }
+  DMTCP_PLUGIN_ENABLE_CKPT();
+  return retval;
+}
+# endif // if __GLIBC_PREREQ(2, 4)
+
 DmtcpPluginDescriptor_t mpi_plugin = {
   DMTCP_PLUGIN_API_VERSION,
   PACKAGE_VERSION,
@@ -178,3 +279,4 @@ DmtcpPluginDescriptor_t mpi_plugin = {
 };
 
 DMTCP_DECL_PLUGIN(mpi_plugin);
+

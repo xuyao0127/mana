@@ -8,6 +8,11 @@
 #include "dmtcp_dlsym.h"
 
 #define   _real_fork      NEXT_FNC_DEFAULT(fork)
+#define   _real_mmap      NEXT_FNC_DEFAULT(mmap)
+#define   _real_munmap      NEXT_FNC_DEFAULT(munmap)
+#define   _real_mremap      NEXT_FNC_DEFAULT(mremap)
+
+#define MAX_MMAP_UH 500
 
 #define NOT_IMPLEMENTED(op)                                         \
 {                                                                   \
@@ -31,5 +36,12 @@ extern struct LowerHalfInfo_t info;
 extern int g_numMmaps;
 extern MmapInfo_t *g_list;
 extern MemRange_t *g_range;
+
+
+// Pointer to the custom dlsym implementation (see mydlsym() in libproxy.c) in
+// the lower half. This is initialized using the information passed to us by
+// the transient lh_proxy process in DMTCP_EVENT_INIT.
+extern proxyDlsym_t pdlsym;
+
 
 #endif // ifndef _MPI_PLUGIN_H
