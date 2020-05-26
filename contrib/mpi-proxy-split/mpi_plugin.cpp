@@ -5,6 +5,7 @@
 #include "drain_send_recv_packets.h"
 #include "record-replay.h"
 #include "two-phase-algo.h"
+#include "mpi_plugin.h"
 
 #include "config.h"
 #include "dmtcp.h"
@@ -13,6 +14,7 @@
 #include "jfilesystem.h"
 #include "protectedfds.h"
 #include "procselfmaps.h"
+#include <sys/mman.h>
 
 using namespace dmtcp;
 
@@ -41,11 +43,11 @@ regionContains(const void *haystackStart,
 }
 
 EXTERNC int
-dmtcp_skip_memory_region_ckpting(const ProcMapsArea *area)
+dmtcp_skip_memory_region_ckpting(ProcMapsArea *area)
 {
   int start = 0;
   while(start < next_mmap_entry){
-    if(uh_hugepages_mmap_list[i].addr==area->addr){
+    if(uh_hugepages_mmap_list[start].addr==area->addr){
       area->flags|=MAP_HUGETLB;
       return 0;
     }
@@ -178,7 +180,13 @@ static DmtcpBarrier mpiPluginBarriers[] = {
     "replay-async-receives" },
 };
 
-extern "C" int
+void print_mmap_list(){
+  for(int i=0; i<next_mmap_entry; i++){
+    ;
+  } 
+}
+
+int
 munmap(void *addr, size_t length)
 {
   DMTCP_PLUGIN_DISABLE_CKPT();
@@ -192,7 +200,7 @@ munmap(void *addr, size_t length)
   DMTCP_PLUGIN_ENABLE_CKPT();
   return retval;
 }
-extern "C" void *mmap(void *addr, size_t length, int prot, int flags,
+void *mmap(void *addr, size_t length, int prot, int flags,
                       int fd, off_t offset)
 {
   DMTCP_PLUGIN_DISABLE_CKPT();
@@ -208,7 +216,7 @@ extern "C" void *mmap(void *addr, size_t length, int prot, int flags,
   return retval;
 }
 
-extern "C" void *mmap64(void *addr, size_t length, int prot, int flags,
+void *mmap64(void *addr, size_t length, int prot, int flags,
                         int fd, off64_t offset)
 {
   DMTCP_PLUGIN_DISABLE_CKPT();
@@ -224,7 +232,7 @@ extern "C" void *mmap64(void *addr, size_t length, int prot, int flags,
   return retval;
 }
 # if __GLIBC_PREREQ(2, 4)
-extern "C" void *mremap(void *old_address, size_t old_size,
+void *mremap(void *old_address, size_t old_size,
                         size_t new_size, int flags, ...)
 {
   void *retval;
@@ -250,7 +258,7 @@ extern "C" void *mremap(void *old_address, size_t old_size,
   return retval;
 }
 # else // if __GLIBC_PREREQ(2, 4)
-extern "C" void *mremap(void *old_address, size_t old_size,
+void *mremap(void *old_address, size_t old_size,
                         size_t new_size, int flags)
 {
   DMTCP_PLUGIN_DISABLE_CKPT();

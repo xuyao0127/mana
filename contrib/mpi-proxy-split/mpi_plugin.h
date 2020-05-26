@@ -7,10 +7,11 @@
 #include "lower_half_api.h"
 #include "dmtcp_dlsym.h"
 
-#define   _real_fork      NEXT_FNC_DEFAULT(fork)
-#define   _real_mmap      NEXT_FNC_DEFAULT(mmap)
-#define   _real_munmap      NEXT_FNC_DEFAULT(munmap)
-#define   _real_mremap      NEXT_FNC_DEFAULT(mremap)
+#define   _real_fork      NEXT_FNC(fork)
+#define   _real_mmap      NEXT_FNC(mmap)
+#define   _real_mmap64      NEXT_FNC(mmap64)
+#define   _real_munmap      NEXT_FNC(munmap)
+#define   _real_mremap      NEXT_FNC(mremap)
 
 #define MAX_MMAP_UH 500
 

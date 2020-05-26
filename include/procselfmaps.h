@@ -47,7 +47,7 @@ class ProcSelfMaps
  *
  * The callback should return 1 if the region should be skipped, 0 otherwise.
  */
-EXTERNC int dmtcp_skip_memory_region_ckpting(const ProcMapsArea *area)
+EXTERNC int dmtcp_skip_memory_region_ckpting(ProcMapsArea *area)
 __attribute((weak));
 #define dmtcp_skip_memory_region_ckpting(r) \
   (dmtcp_skip_memory_region_ckpting ? \
