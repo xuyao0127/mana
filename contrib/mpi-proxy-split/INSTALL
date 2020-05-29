@@ -1,0 +1,98 @@
+[E-mail instructions as of May 28, 2020.  Revise this when MANA is more stable.]
+
+Hi Zhengji,
+    Here is a revised version of my instructions for running MANA.
+I'm also adding these instructions to:
+      $MANA_ROOT/contrib/mpi-proxy-split/INSTALL
+
+The main pointers are:
+
+MANA at github:
+  https://github.com/mpickpt/mana/tree/refactoring
+  (the refactoring branch of https://github.com/mpickpt/mana ).
+and MANA documentation:
+  https://docs.google.com/document/d/1pT25gvMNeT1Vz4SU6Gp4Hx9MGLfkK8ZK-sSOwtu5R50/edit
+
+Eventually, we'll have a better Makefile, and scripts for this:
+  mpi_mana_launch, mpi_mana_restart, mpi_mana_status.
+But for now, we're still modifying it.
+
+At this time, the steps to build MANA (on Cori) are roughly as follows.
+
+  module unload craype-hugepages2M
+  # Modify the salloc command according to your needs:
+  salloc -N 1 -C haswell -q interactive -t 03:00:00
+  git clone https://github.com/mpickpt/mana
+  git checkout refactoring  # current development branch; later to be 'master'
+  cd mana
+  # Development branch.  (Eventually, the 'master' branch will be preferred.)
+  git checkout refactoring
+  ./configure
+  make -j  # Build in source directory: create bin, lib directories.
+  pushd contrib/mpi-proxy-split  # Go to plugin directory.
+  (cd test && make -j)
+  make install
+  pushd  # Go back to the MANA root directory
+  make -j  # Make it again. The plugin 'make' added an extra file to core DMTCP.
+  pushd  # Go back to plugin directory: mpi-proxy-split
+  cd test # We're now in:  contrib/mpi-proxy-split/test
+
+And then to test it, my instructions here are based on our very informal
+notes on Cori at:
+  ~gdc0/public/commands-wednesday.history
+The working notes may change, and we'll then propagate the changes to these instructions.)
+
+Roughly, to test MANA, do:
+  export MANA_ROOT=$HOME/mana  # Adjust for your directory.
+  cd $MANA_ROOT/contrib/mpi-proxy-split/test
+  make tidy # Remove old ckpt files from a previous session.
+  $MANA_ROOT/bin/dmtcp_coordinator --mpi -q -q --exit-on-last --daemon
+  # This does interval checkpointing every 5 seconds.
+  srun -n 1 $MANA_ROOT/bin/dmtcp_launch -i5 --host `hostname` --no-gzip --join --disable-dl-plugin --with-plugin $PWD/../libmana.so ./mpi_hello_world.mana.exe
+  # [ creates ckpt:   ls ckpt_rank_*/ckpt_*.dmtcp ]
+  $MANA_ROOT/bin/dmtcp_coordinator --mpi -q -q --exit-on-last --daemon
+  srun -n 1 $MANA_ROOT/bin/dmtcp_restart --host `hostname` --join --mpi ckpt_rank_*/ckpt_*.dmtcp
+
+As I said earlier, we will later simplify all of this with a better Makefile
+and scripts for launch, restart, and status.  But right now, this branch
+is still under development.
+
+Best,
+- Gene
+
+=================================================================================
+Debugging internals of MANA:
+
+Wherever you see '$MANA_ROOT', replace it with 'DMTCP_MANA_PAUSE=1 $DMTCP_ROOT'
+  and run the command in the background.  (Add '&' to the end of the command.)
+It will stop with a printout about how to attach in GDB.  Execute that command.
+Then:  (gdb) p dummy=0
+
+When debugging in GDB, you can switch back and forth between upper half and
+lower half programs as follows (assuming you're in .../mpi-proxy-split/test).
+This is useful for examining both the upper and lower half stacks.
+  (gdb) file ../../../lh_proxy
+  (gdb) file ../mpi_hello_world.mana.exe
+If you had previously set aa breakpoint before switching, then use:
+  (gdb) set breakpoint always-inserted on
+before switching among lower and upper halves.
+
+=================================================================================
+Testing on ordinary CentOS/Ubuntu (not Cori):
+
+Testing is the same as above.  However, building outside of Cori is a little
+more involved.
+1.  git checkout test-dekaksi    # This will be merged into refactoring later.
+2.  Instead of './configure', do 'sh configure-mana'.  In some cases, you may
+    or may not have to modify the 'configure-mana' script.
+3.  When you do 'make -j' inside contrib/mpi-proxy-split, it will fail on
+    linking in the lower-half subdirectory.  To fix this, do:
+      cd lower-half
+        # The current variant of this command can be found in
+        # $DMTCP_ROOT/configure-mana .  Adjust the paths for your local setup.
+      gcc -g -static -Wl,-Ttext-segment -Wl,0xE000000 -Wl,--wrap -Wl,__munmap -Wl,--wrap -Wl,shmat -Wl,--wrap -Wl,shmget -o lh_proxy lh_proxy.o libproxy.a -lmpi -llzma -lrt -lpthread -lc libproxy.a -llzma -I$PWD/../../../../mpich-3.3.2-build/include -L$PWD/../../../../mpich-3.3.2-build/lib -Wl,-rpath -Wl,$PWD/../../../../mpich-3.3.2-build/lib/ -Wl,--enable-new-dtags -lmpi -lm  -lbacktrace -lpthread -lrt
+      make -j
+      cd ..
+      make install  # Same as original directions.
+      cd $DMTCP_ROOT && make -j  # Same as original directions
+4.  When testing at your site, you may need to use 'mpirun' instead of 'srun'.
