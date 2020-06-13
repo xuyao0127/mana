@@ -41,6 +41,10 @@ TESTS_DUMMY=$(addsuffix .mana.exe, ${FILES})
 TESTS=$(addsuffix .exe, ${FILES})
 LDFLAGS_DUMMY=-L../mpi-wrappers -lmpidummy
 
+mmap_huge:
+	cc -g3 -O0 -fPIC -c -o mmap_hugepage.o mmap_hugepage.c
+	cc  -o mmap_hugepage.mana.exe mmap_hugepage.o -dynamic -L../mpi-wrappers -lmpidummy
+
 default: ${TESTS} ${TESTS_DUMMY}
 
 # This doesn't work well yet, but it's a work in progress.
