@@ -16,6 +16,11 @@
 #include "procselfmaps.h"
 #include <sys/mman.h>
 
+#include <unistd.h>
+#include <sys/types.h>
+#include <iterator>
+#include <map>
+
 using namespace dmtcp;
 
 /* Global variables */
@@ -27,9 +32,11 @@ int g_numMmaps = 0;
 MmapInfo_t *g_list = NULL;
 MemRange_t *g_range = NULL;
 
-MmapInfo_t uh_hugepages_mmap_list[MAX_MMAP_UH];
-int next_mmap_entry=0;
+map<unsigned int long,int> uh_hugepages_map;
+//MmapInfo_t uh_hugepages_mmap_list[MAX_MMAP_UH];
+//int next_mmap_entry=0;
 // #define DEBUG
+
 
 #undef dmtcp_skip_memory_region_ckpting
 
@@ -45,15 +52,13 @@ regionContains(const void *haystackStart,
 EXTERNC int
 dmtcp_skip_memory_region_ckpting(ProcMapsArea *area)
 {
-  int start = 0;
-  while(start < next_mmap_entry){
-    if(uh_hugepages_mmap_list[start].addr==area->addr){
-      area->flags|=MAP_HUGETLB;
-      return 0;
-    }
-    start++;
+  dmtcp::map<unsigned int long,int>::iterator itr;
+  itr=uh_hugepages_map.find((unsigned int long)area->addr);
+  if(itr!=uh_hugepages_map.end()){
+    area->flags|=MAP_HUGETLB;
+    return 0;
   }
-  if(start == next_mmap_entry){
+  else{
     if (area->addr == info.startTxt ||
         strstr(area->name, "/dev/zero") ||
         strstr(area->name, "/dev/kgni") ||
@@ -92,7 +97,7 @@ void
 segvfault_handler(int signum, siginfo_t *siginfo, void *context)
 {
   int dummy = 0;
-  JNOTE("Caught a segmentation fault. Attach gdb to inspect...");
+  JNOTE("Process caught a segmentation fault. Attach gdb to inspect...")(getpid());
   while (!dummy);
 }
 
@@ -179,23 +184,20 @@ static DmtcpBarrier mpiPluginBarriers[] = {
   { DMTCP_GLOBAL_BARRIER_RESTART, replayMpiOnRestart,
     "replay-async-receives" },
 };
-
+/*
 void print_mmap_list(){
   for(int i=0; i<next_mmap_entry; i++){
     ;
   } 
 }
-
+*/
 int
 munmap(void *addr, size_t length)
 {
   DMTCP_PLUGIN_DISABLE_CKPT();
   int retval = _real_munmap(addr, length);
-  for(int i=0;i<next_mmap_entry;i++){
-    if(uh_hugepages_mmap_list[i].addr==addr){
-      uh_hugepages_mmap_list[i].unmapped=1;
-      break;
-    }
+  if(retval!=-1){
+    uh_hugepages_map.erase((unsigned int long)addr);
   }
   DMTCP_PLUGIN_ENABLE_CKPT();
   return retval;
@@ -205,12 +207,9 @@ void *mmap(void *addr, size_t length, int prot, int flags,
 {
   DMTCP_PLUGIN_DISABLE_CKPT();
   void *retval = _real_mmap(addr, length, prot, flags, fd, offset);  
-  if(flags&MAP_HUGETLB)
+  if(flags&MAP_HUGETLB&&retval!=MAP_FAILED)
   {
-    uh_hugepages_mmap_list[next_mmap_entry].addr=retval;
-    uh_hugepages_mmap_list[next_mmap_entry].len=length;
-    uh_hugepages_mmap_list[next_mmap_entry].unmapped=0; 
-    next_mmap_entry++;
+    uh_hugepages_map.insert(std::pair<unsigned long,int>((unsigned long)retval,length));
   }
   DMTCP_PLUGIN_ENABLE_CKPT();
   return retval;
@@ -221,12 +220,9 @@ void *mmap64(void *addr, size_t length, int prot, int flags,
 {
   DMTCP_PLUGIN_DISABLE_CKPT();
   void *retval = _real_mmap64(addr, length, prot, flags, fd, offset);
-  if(flags&MAP_HUGETLB)
+  if(flags&MAP_HUGETLB&&retval!=MAP_FAILED)
   {
-    uh_hugepages_mmap_list[next_mmap_entry].addr=retval;
-    uh_hugepages_mmap_list[next_mmap_entry].len=length;
-    uh_hugepages_mmap_list[next_mmap_entry].unmapped=0; 
-    next_mmap_entry++;
+    uh_hugepages_map.insert(std::pair<unsigned long,int>((unsigned long)retval,length));
   }
   DMTCP_PLUGIN_ENABLE_CKPT();
   return retval;
@@ -236,7 +232,6 @@ void *mremap(void *old_address, size_t old_size,
                         size_t new_size, int flags, ...)
 {
   void *retval;
-
   DMTCP_PLUGIN_DISABLE_CKPT();
   if (flags == MREMAP_FIXED) {
     va_list ap;
@@ -246,12 +241,21 @@ void *mremap(void *old_address, size_t old_size,
     retval = _real_mremap(old_address, old_size, new_size, flags, new_address);
   } else {
     retval = _real_mremap(old_address, old_size, new_size, flags);
-  }
-  for(int i=0;i<next_mmap_entry;i++){
-    if(uh_hugepages_mmap_list[i].addr==old_address){
-      uh_hugepages_mmap_list[i].addr=retval;
-      uh_hugepages_mmap_list[i].len=new_size;
-      break;
+  } 
+  if (retval!=MAP_FAILED){
+    dmtcp::map<unsigned int long,int>::iterator itr;
+    if(flags == MREMAP_FIXED){
+      va_list ap;
+      va_start(ap, flags);
+      void *new_address = va_arg(ap, void *);
+      va_end(ap);
+      uh_hugepages_map.erase((unsigned int long)old_address);
+      uh_hugepages_map.insert(std::pair<unsigned long,int>((unsigned long)new_address,new_size));
+    }  else{
+      itr=uh_hugepages_map.find((unsigned int long)retval);
+      if(itr!=uh_hugepages_map.end()){
+        itr->second=new_size;
+      }
     }
   }
   DMTCP_PLUGIN_ENABLE_CKPT();
@@ -263,11 +267,11 @@ void *mremap(void *old_address, size_t old_size,
 {
   DMTCP_PLUGIN_DISABLE_CKPT();
   void *retval = _real_mremap(old_address, old_size, new_size, flags);
-  for(int i=0;i<next_mmap_entry;i++){
-    if(uh_hugepages_mmap_list[i].addr==old_address){
-      uh_hugepages_mmap_list[i].addr=retval;
-      uh_hugepages_mmap_list[i].len=new_size;
-      break;
+  if (retval!=MAP_FAILED){
+    dmtcp::map<unsigned int long,int>::iterator itr;
+    itr=uh_hugepages_map.find((unsigned int long)retval);
+    if(itr!=uh_hugepages_map.end()){
+      itr->second=new_size;
     }
   }
   DMTCP_PLUGIN_ENABLE_CKPT();
