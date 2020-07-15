@@ -99,6 +99,19 @@ TwoPhaseAlgo::preSuspendBarrier(const void *data)
 {
   JASSERT(data).Text("Pre-suspend barrier called with NULL data!");
   DmtcpMessage msg(DMT_PRE_SUSPEND_RESPONSE);
+  int mpi_init_flag=0;
+
+  //Check if MPI_Init() was called before calling any other MPI routine.
+  if (MPI_Initialized(&mpi_init_flag) == MPI_SUCCESS) {
+    if (mpi_init_flag == 0) {
+      JNOTE("MPI uninitialized");
+      setCurrState(READY_FOR_CKPT);
+      rank_state_t state = { .rank = -1, .comm = MPI_COMM_NULL, .st = READY_FOR_CKPT};
+      msg.extraBytes = sizeof state;
+      informCoordinatorOfCurrState(msg, &state);
+      return;
+    }
+  }
 
   phase_t st = getCurrState();
   query_t query = *(query_t*)data;

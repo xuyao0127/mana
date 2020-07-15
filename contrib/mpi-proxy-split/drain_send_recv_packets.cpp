@@ -51,6 +51,16 @@ static bool drain_one_packet(MPI_Datatype datatype, MPI_Comm comm);
 void
 getLocalRankInfo()
 {
+
+  int mpi_init_flag=0;
+
+  //Check if MPI_Init() was called before calling any other MPI routine.
+  if (MPI_Initialized(&mpi_init_flag) == MPI_SUCCESS) {
+    if (mpi_init_flag == 0) {
+      JNOTE("MPI uninitialized");
+      return;
+    }
+  }
   if (g_world_rank == -1) {
     JASSERT(MPI_Comm_rank(MPI_COMM_WORLD, &g_world_rank) == MPI_SUCCESS &&
             g_world_rank != -1);
@@ -65,6 +75,15 @@ getLocalRankInfo()
 void
 drainMpiPackets()
 {
+  int mpi_init_flag=0;
+
+  //Check if MPI_Init() was called before calling any other MPI routine.
+  if (MPI_Initialized(&mpi_init_flag) == MPI_SUCCESS) {
+    if (mpi_init_flag == 0) {
+      JNOTE("MPI uninitialized");
+      return;
+    }
+  }
   // FIXME: Can we skip the drain and replay here if we were in some
   // collective call? The reasoning is that if we were stuck in some collective
   // call at checkpoint time, any pending sends and received would have been
@@ -99,6 +118,16 @@ drainMpiPackets()
 void
 updateCkptDirByRank()
 {
+  int mpi_init_flag=0;
+
+  //Check if MPI_Init() was called before calling any other MPI routine.
+  if (MPI_Initialized(&mpi_init_flag) == MPI_SUCCESS) {
+    if (mpi_init_flag == 0) {
+      JNOTE("MPI uninitialized");
+      return;
+    }
+  }
+  
   const char *ckptDir = dmtcp_get_ckpt_dir();
   dmtcp::string baseDir;
 
@@ -131,6 +160,16 @@ void
 verifyLocalInfoOnRestart()
 {
   int world_rank = -1, world_size = -1;
+  int mpi_init_flag=0;
+
+  //Check if MPI_Init() was called before calling any other MPI routine.
+  if (MPI_Initialized(&mpi_init_flag) == MPI_SUCCESS) {
+    if (mpi_init_flag == 0) {
+      JNOTE("MPI uninitialized");
+      return;
+    }
+  }
+
   JASSERT(g_world_rank != -1 && g_world_size != -1);
   JASSERT(MPI_Comm_rank(MPI_COMM_WORLD, &world_rank) == MPI_SUCCESS &&
           world_rank != -1 && world_rank == g_world_rank);
@@ -185,9 +224,18 @@ replayMpiOnRestart()
 void
 registerLocalSendsAndRecvs()
 {
+  int mpi_init_flag=0;
   static bool firstTime = true;
   bool unsvcdIsends = resolve_async_messages();
 
+  //Check if MPI_Init() was called before calling any other MPI routine.
+  if (MPI_Initialized(&mpi_init_flag) == MPI_SUCCESS) {
+    if (mpi_init_flag == 0) {
+      JNOTE("MPI uninitialized");
+      return;
+    }
+  }
+  
   int rc = dmtcp_send_key_val_pair_to_coordinator(MPI_SEND_RECV_DB,
                                                   &(localSrCount.rank),
                                                   sizeof(localSrCount.rank),

@@ -38,6 +38,16 @@ static int restoreOpFree(const MpiRecord& rec);
 void
 restoreMpiState()
 {
+  int mpi_init_flag=0;
+
+  //Check if MPI_Init() was called before calling any other MPI routine.
+  if (MPI_Initialized(&mpi_init_flag) == MPI_SUCCESS) {
+    if (mpi_init_flag == 0) {
+      JWARNING("MPI uninitialized");
+      return;
+    }
+  }
+
   JWARNING(RESTORE_MPI_STATE() == MPI_SUCCESS)
           .Text("Failed to restore MPI state");
 }

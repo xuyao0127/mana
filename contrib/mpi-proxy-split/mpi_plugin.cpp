@@ -117,6 +117,13 @@ mpi_plugin_event_hook(DmtcpEvent_t event, DmtcpEventData_t *data)
 static void
 getLhMmapList()
 {
+  int flag=0;
+  if (MPI_Initialized(&flag) == MPI_SUCCESS) {
+    if (flag == 0) {
+      JWARNING("MPI uninitialized");
+      return;
+    }
+  }
   getMmappedList_t fnc = (getMmappedList_t)lh_info.getMmappedListFptr;
   if (fnc) {
     g_list = fnc(&g_numMmaps);
