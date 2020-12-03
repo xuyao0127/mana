@@ -50,7 +50,7 @@ static dmtcp::vector<mpi_call_params_t> g_unsvcd_sends;
 
 static void get_remote_sr_counts(uint64_t* , uint64_t* ,
                                  uint64_t* , uint64_t* ,
-				 dmtcp::vector<mpi_call_params_t>& );
+                                 dmtcp::vector<mpi_call_params_t>& );
 static bool resolve_async_messages();
 static bool drain_packets(const dmtcp::vector<mpi_call_params_t>& );
 static bool drain_one_packet(MPI_Datatype datatype, MPI_Comm comm);
@@ -80,12 +80,12 @@ drainMpiPackets()
   // call at checkpoint time, any pending sends and received would have been
   // completed. This is because MPI guarantees FIFO ordering on messages.
   dmtcp::vector<mpi_call_params_t> totalUnsvcdSends;
-  uint64_t totalSends = 0, totalRecvs = 0, totalSendCount = 0, totalRecvCount = 0; 
+  uint64_t totalSends = 0, totalRecvs = 0, totalSendCount = 0, totalRecvCount = 0;
 
   // Get updated info from central db
   get_remote_sr_counts(&totalSends, &totalRecvs, &totalSendCount, &totalRecvCount, totalUnsvcdSends);
-  
-  //FIXME: If this works, delete (totalSends > toalrevcs) condition.
+
+  // FIXME: If this works, delete (totalSends > toalrevcs) condition.
   while (totalSends > totalRecvs && totalSendCount > totalRecvCount) {
     // Drain all unserviced sends
     drain_packets(totalUnsvcdSends);
@@ -118,15 +118,22 @@ updateCkptDirByRank()
   } else {
     baseDir = ckptDir;
   }
-  JTRACE("Updating checkpoint directory")(ckptDir)(baseDir);
+  // Note that o.str().c_str() results in a dangling ponter.
+  // The result of o.str() must be saved to a variable,
+  // from which c_str() is called.
   dmtcp::ostringstream o;
   o << baseDir << "/ckpt_rank_" << g_world_rank;
-  dmtcp_set_ckpt_dir(o.str().c_str());
+  dmtcp::string ckptDirStr = o.str();
+  dmtcp_set_ckpt_dir(ckptDirStr.c_str());
 
   if (!g_list || g_numMmaps == 0) return;
   o << "/lhregions.dat";
-  const char *fname = o.str().c_str();
-  int fd = open(fname, O_CREAT | O_WRONLY);
+  dmtcp::string fname = o.str();
+  JASSERT(Util::createDirectoryTree(fname))(fname)
+    .Text("Failed to create checkpoint directory");
+  int fd = open(fname.c_str(), O_CREAT | O_WRONLY, S_IRWXU);
+  JASSERT(fd > 0)(fd)(fname.c_str())(errno)(strerror(errno))
+    .Text("Failed to open/create lhregions.dat");
 #if 0
   // g_range (lh_memory_range) was written for debugging here.
   Util::writeAll(fd, g_range, sizeof(*g_range));
@@ -449,7 +456,7 @@ get_remote_sr_counts(uint64_t *totalSends, uint64_t *totalRecvs,
     return;
   }
   char *ptr = (char*)buf;
-  while (ptr < (char*)buf + len) {
+  while (ptr < ((char*)buf) + len) {
     // For each rank:
     //   First, we get the send/recv/unserviced send counts
     size_t mysz = sizeof(size_t) + sizeof(int) + sizeof(size_t);
@@ -465,7 +472,7 @@ get_remote_sr_counts(uint64_t *totalSends, uint64_t *totalRecvs,
       JTRACE("Received unserviced requests")(ts);
       uint32_t sz = ts * sizeof(mpi_call_params_t);
       mpi_call_params_t *ps = (mpi_call_params_t*)JALLOC_HELPER_MALLOC(sz);
-      rc = dmtcp_send_query_to_coordinator(MPI_US_DB, &sptr->rank,
+      rc = dmtcp_send_query_to_coordinator(MPI_US_DB, &(sptr->rank),
                                            sizeof(sptr->rank),
                                            ps, &sz);
       JASSERT(rc == sz)(rc)(MPI_US_DB)
@@ -546,7 +553,8 @@ resolve_async_messages()
                                                 return memcmp(&p,
                                                               &call->params,
                                                               sizeof(p)) == 0;
-                                              }));
+                                              }),
+                               g_unsvcd_sends.end());
         }
         // remove successful requests from this list
         it = g_async_calls.erase(it);
@@ -628,6 +636,7 @@ drain_one_packet(MPI_Datatype datatype, MPI_Comm comm)
   RETURN_TO_UPPER_HALF();
   if (rc != MPI_SUCCESS) {
     JWARNING(false).Text("[DRAIN] Failed to receive packet.");
+    JALLOC_HELPER_FREE(buf);
     return false;
   }
 
