@@ -8,6 +8,8 @@
 #include "plugininfo.h"
 #include "util.h"
 
+#define STATIC
+
 static const char *firstRestartBarrier = "DMTCP::RESTART";
 
 static dmtcp::PluginManager *pluginManager = NULL;
@@ -63,7 +65,9 @@ extern "C" void
 dmtcp_initialize_plugin()
 {
   // Now register the "in-built" plugins.
+#ifndef STATIC
   dmtcp_register_plugin(dmtcp_Syslog_PluginDescr());
+#endif
   dmtcp_register_plugin(dmtcp_Alarm_PluginDescr());
   dmtcp_register_plugin(dmtcp_Terminal_PluginDescr());
   dmtcp_register_plugin(CoordinatorAPI::pluginDescr());

@@ -48,7 +48,7 @@ bin_PROGRAMS = $(d_bindir)/dmtcp_launch \
 	       $(d_bindir)/dmtcp_coordinator \
 	       $(d_bindir)/dmtcp_restart \
 	       $(d_bindir)/dmtcp_nocheckpoint
-dmtcplib_PROGRAMS = $(d_libdir)/libdmtcp.so
+dmtcplib_PROGRAMS = $(d_libdir)/libdmtcp.a
 include_HEADERS = $(srcdir)/../include/dmtcp.h
 
 # headers:
@@ -99,24 +99,46 @@ __d_bindir__dmtcp_restart_SOURCES = dmtcp_restart.cpp util_exec.cpp
 __d_bindir__dmtcp_command_SOURCES = dmtcp_command.cpp
 
 __d_libdir__libdmtcp_so_SOURCES = dmtcpworker.cpp threadsync.cpp \
-		      coordinatorapi.cpp execwrappers.cpp \
-		      signalwrappers.cpp \
+		      coordinatorapi.cpp \
 		      terminal.cpp \
 		      alarm.cpp \
 		      threadwrappers.cpp \
-		      miscwrappers.cpp ckptserializer.cpp writeckpt.cpp \
+		      ckptserializer.cpp writeckpt.cpp \
 		      glibcsystem.cpp \
 		      threadlist.cpp siginfo.cpp \
-		      dmtcpplugin.cpp popen.cpp syslogwrappers.cpp \
+		      dmtcpplugin.cpp popen.cpp \
 		      dmtcp_dlsym.cpp plugininfo.cpp pluginmanager.cpp
 
-__d_libdir__libdmtcp_so_LDFLAGS = -shared -Xlinker -znow
+__d_libdir__libdmtcp_a_LDFLAGS = -all-static
 
 # Note that an ELF object uses libsyscallsreal.a or libnohijack.a
 #  but not both.  libnohijack.a has stub definitions for same symbols.
-__d_libdir__libdmtcp_so_LDADD = libdmtcpinternal.a libjalib.a \
-				libsyscallsreal.a mtcp/libmtcp.a \
-				-ldl -lpthread -lrt
+__d_libdir__libdmtcp_a_LIBADD = coordinatorapi.o                \
+				dmtcpmessagetypes.o                \
+				dmtcp_dlsym.o                      \
+				jalibinterface.o                   \
+				mutex.o                            \
+				processinfo.o                      \
+				procselfmaps.o                     \
+				rwlock.o                   \
+				shareddata.o                       \
+				tokenize.o                 \
+				uniquepid.o                        \
+				util_exec.o                        \
+				util_init.o                        \
+				util_misc.o                        \
+				workerstate.o \
+				jalib.o                    \
+				jalloc.o                   \
+				jassert.o                  \
+				jbuffer.o                  \
+				jfilesystem.o              \
+				jserialize.o                       \
+				jsocket.o                  \
+				jtimer.o \
+				syscallsreal.o                     \
+				trampolines.o \
+				mtcp/restore_libc.o
 
 __d_bindir__dmtcp_coordinator_LDADD = $(manaplugindir)/mana_coordinator.o \
 			  libdmtcpinternal.a libjalib.a \

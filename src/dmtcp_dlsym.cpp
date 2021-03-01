@@ -71,6 +71,8 @@
 #include "jassert.h"
 #include "config.h"
 
+#define STATIC
+
 // ***** NOTE:  link.h invokes elf.h, which:
 // *****        expands ElfW(Word)  to  Elf64_Word; and then defines:
 // *****        typedef uint32_t Elf63_Word;
@@ -433,6 +435,11 @@ dlsym_default_internal_flag_handler(void *handle,
                                     void *addr,
                                     dt_tag *tags_p,
                                     Elf32_Word *default_symbol_index_p)
+#ifdef STATIC
+{
+  return NULL;
+}
+#else
 {
   Dl_info info;
   struct link_map *map;
@@ -490,6 +497,7 @@ dlsym_default_internal_flag_handler(void *handle,
   }
   return NULL;
 }
+#endif
 
 // Produces an error message and hard fails if no default_symbol was found.
 static void
@@ -537,6 +545,11 @@ print_debug_messages(dt_tag tags,
 
 EXTERNC void *
 dmtcp_dlsym(void *handle, const char *symbol)
+#ifdef STATIC
+{
+  return NULL;
+}
+#else
 {
   dt_tag tags;
   Elf32_Word default_symbol_index = 0;
@@ -562,9 +575,15 @@ dmtcp_dlsym(void *handle, const char *symbol)
   print_debug_messages(tags, default_symbol_index, symbol);
   return result;
 }
+#endif
 
 EXTERNC void *
 dmtcp_dlvsym(void *handle, char *symbol, const char *version)
+#ifdef STATIC
+{
+  return NULL;
+}
+#else
 {
   dt_tag tags;
   Elf32_Word default_symbol_index = 0;
@@ -587,9 +606,15 @@ dmtcp_dlvsym(void *handle, char *symbol, const char *version)
                                                         &default_symbol_index);
   return result;
 }
+#endif
 
 EXTERNC void *
 dmtcp_dlsym_lib(const char *libname, const char *symbol)
+#ifdef STATIC
+{
+  return NULL;
+}
+#else
 {
   dt_tag tags;
   Elf32_Word default_symbol_index = 0;
@@ -602,6 +627,7 @@ dmtcp_dlsym_lib(const char *libname, const char *symbol)
                                                      &default_symbol_index);
   return result;
 }
+#endif
 
 /*
  * Returns the offset of the given function within the given shared library
@@ -609,6 +635,11 @@ dmtcp_dlsym_lib(const char *libname, const char *symbol)
  */
 EXTERNC ptrdiff_t
 dmtcp_dlsym_lib_fnc_offset(const char *libname, const char *symbol)
+#ifdef STATIC
+{
+  return 0;
+}
+#else
 {
   dt_tag tags;
   ptrdiff_t ret = -1;
@@ -625,3 +656,4 @@ dmtcp_dlsym_lib_fnc_offset(const char *libname, const char *symbol)
   }
   return ret;
 }
+#endif

@@ -40,6 +40,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#define STATIC
+
 // FIXME:  The SLES 10 (glibc-2.4) declaration for msgctl differs from
 // our wrapper's declaration, which uses the POSIX declaration.
 // If for syscallsreal.c, use the local (e.g., SLES 10) decl.
@@ -122,8 +124,6 @@ LIB_PRIVATE extern __thread int thread_performing_dlopen_dlsym;
   MACRO(munmap)
 
 #define FOREACH_GLIBC_WRAPPERS(MACRO) \
-  MACRO(dlopen)                       \
-  MACRO(dlclose)                      \
   MACRO(getpid)                       \
   MACRO(getppid)                      \
   MACRO(kill)                         \
@@ -172,7 +172,6 @@ LIB_PRIVATE extern __thread int thread_performing_dlopen_dlsym;
                                       \
   MACRO(signal)                       \
   MACRO(sigaction)                    \
-  MACRO(sigvec)                       \
                                       \
   MACRO(sigset)                       \
   MACRO(sigblock)                     \
@@ -236,12 +235,6 @@ LIB_PRIVATE extern __thread int thread_performing_dlopen_dlsym;
   MACRO(msgctl)                       \
   MACRO(msgsnd)                       \
   MACRO(msgrcv)                       \
-                                      \
-  MACRO(mq_open)                      \
-  MACRO(mq_close)                     \
-  MACRO(mq_timedsend)                 \
-  MACRO(mq_timedreceive)              \
-  MACRO(mq_notify)                    \
                                       \
   MACRO(read)                         \
   MACRO(write)                        \

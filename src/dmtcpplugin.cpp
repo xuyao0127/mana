@@ -30,6 +30,8 @@
 #include "threadsync.h"
 #include "util.h"
 
+#define STATIC
+
 #undef dmtcp_is_enabled
 #undef dmtcp_checkpoint
 #undef dmtcp_disable_ckpt
@@ -431,6 +433,11 @@ LIB_PRIVATE int32_t dmtcp_dlsym_offset = -1;
 typedef void * (*dlsym_fnptr_t) (void *handle, const char *symbol);
 EXTERNC void *
 dmtcp_get_libc_dlsym_addr(void)
+#ifdef STATIC
+{
+  return NULL;
+}
+#else
 {
   static dlsym_fnptr_t _libc_dlsym_fnptr = NULL;
 
@@ -459,6 +466,7 @@ dmtcp_get_libc_dlsym_addr(void)
 
   return (void *)_libc_dlsym_fnptr;
 }
+#endif
 
 EXTERNC void
 dmtcp_block_ckpt_signal(void)
