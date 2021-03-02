@@ -116,7 +116,6 @@ LIB_PRIVATE extern __thread int thread_performing_dlopen_dlsym;
   MACRO(calloc)                                     \
   MACRO(malloc)                                     \
   MACRO(free)                                       \
-  MACRO(__libc_memalign)                            \
   MACRO(realloc)                                    \
   MACRO(mmap)                                       \
   MACRO(mmap64)                                     \
@@ -124,6 +123,8 @@ LIB_PRIVATE extern __thread int thread_performing_dlopen_dlsym;
   MACRO(munmap)
 
 #define FOREACH_GLIBC_WRAPPERS(MACRO) \
+  MACRO(dlopen)                       \
+  MACRO(dlclose)                      \
   MACRO(getpid)                       \
   MACRO(getppid)                      \
   MACRO(kill)                         \
@@ -241,6 +242,12 @@ LIB_PRIVATE extern __thread int thread_performing_dlopen_dlsym;
                                       \
   MACRO(select)                       \
   MACRO(poll)                         \
+                                      \
+  MACRO(mq_open)                      \
+  MACRO(mq_close)                     \
+  MACRO(mq_timedsend)                 \
+  MACRO(mq_timedreceive)              \
+  MACRO(mq_notify)                    \
                                       \
   MACRO(pthread_create)               \
   MACRO(pthread_exit)                 \
