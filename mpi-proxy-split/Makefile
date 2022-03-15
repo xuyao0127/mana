@@ -30,10 +30,8 @@ WRAPPERS_SRCDIR=mpi-wrappers
 # As you add new files to your plugin library, add the object file names here.
 
 LIBOBJS = mpi_plugin.o p2p_drain_send_recv.o p2p_log_replay.o \
-          record-replay.o two-phase-algo.o \
+          record-replay.o seq_num.o \
           split_process.o ${LOWER_HALF_SRCDIR}/procmapsutils.o
-
-#MANA_COORD_OBJS = mana_coordinator.o
 
 LIBPROXY = libproxy.a
 
@@ -51,7 +49,7 @@ override CXXFLAGS += -fPIC -I${DMTCP_INCLUDE} -I${JALIB_INCLUDE} \
 
 # ${WRAPPERS_SRCDIR}/libmpiwrappers.a ia a prerequisite for libmana.so
 # Always do 'make default' or 'make install' -- not 'make libmana.so'
-default: ${MANA_COORD_OBJS}
+default:
 	make -C ${WRAPPERS_SRCDIR} libmpiwrappers.a
 	@make libmana.so
 	@make -C ${LOWER_HALF_SRCDIR} lh_proxy
@@ -63,6 +61,9 @@ libmana.so: ${LIBOBJS} ${WRAPPERS_SRCDIR}/libmpiwrappers.a
 
 mpi_unimplemented_wrappers.cpp: generate-mpi-unimplemented-wrappers.py mpi_unimplemented_wrappers.txt
 	python $^ > $@
+
+seq_num.o: seq_num.cpp
+	${MPICC} ${CXXFLAGS} -c -o $@ $< -lpthread
 
 .c.o:
 	${MPICC} ${CFLAGS} -c -o $@ $<
@@ -105,7 +106,7 @@ ${DMTCP_ROOT}/bin/gethostbyname_proxy:
 #   which is a prerequisite for ${DMTCP_ROOT}/lib/dmtcp/libmana.so
 # Always do 'make default' or 'make install' -- not 'make libmana.so'
 # MANA_COORD_OBJS needed for 'make mana' at top level.
-install: ${MANA_COORD_OBJS}
+install: 
 	make -C ${WRAPPERS_SRCDIR} libmpiwrappers.a
 	make ${DMTCP_ROOT}/lib/dmtcp/libmana.so
 	make ${DMTCP_ROOT}/lib/dmtcp/libmpidummy.so
@@ -117,7 +118,7 @@ tidy:
 	rm -rf ckpt_rank_*
 
 clean: tidy
-	rm -f ${LIBOBJS} ${MANA_COORD_OBJS}
+	rm -f ${LIBOBJS}
 	rm -f libmana.so
 	rm -f ${DMTCP_ROOT}/lib/dmtcp/libmana.so
 	@cd ${LOWER_HALF_SRCDIR} && make clean

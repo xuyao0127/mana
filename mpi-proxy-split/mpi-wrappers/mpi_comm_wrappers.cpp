@@ -30,7 +30,6 @@
 #include "mpi_nextfunc.h"
 #include "record-replay.h"
 #include "virtual-ids.h"
-#include "two-phase-algo.h"
 #include "p2p_drain_send_recv.h"
 
 using namespace dmtcp_mpi;
@@ -62,25 +61,22 @@ USER_DEFINED_WRAPPER(int, Comm_rank, (MPI_Comm) comm, (int *) world_rank)
 USER_DEFINED_WRAPPER(int, Comm_create, (MPI_Comm) comm, (MPI_Group) group,
                      (MPI_Comm *) newcomm)
 {
-  std::function<int()> realBarrierCb = [=]() {
-    int retval;
-    DMTCP_PLUGIN_DISABLE_CKPT();
-    MPI_Comm realComm = VIRTUAL_TO_REAL_COMM(comm);
-    MPI_Group realGroup = VIRTUAL_TO_REAL_GROUP(group);
-    JUMP_TO_LOWER_HALF(lh_info.fsaddr);
-    retval = NEXT_FUNC(Comm_create)(realComm, realGroup, newcomm);
-    RETURN_TO_UPPER_HALF();
-    if (retval == MPI_SUCCESS && MPI_LOGGING()) {
-      MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
-      VirtualGlobalCommId::instance().createGlobalId(virtComm);
-      *newcomm = virtComm;
-      active_comms.insert(virtComm);
-      LOG_CALL(restoreComms, Comm_create, comm, group, virtComm);
-    }
-    DMTCP_PLUGIN_ENABLE_CKPT();
-    return retval;
-  };
-  return twoPhaseCommit(comm, realBarrierCb);
+  int retval;
+  DMTCP_PLUGIN_DISABLE_CKPT();
+  MPI_Comm realComm = VIRTUAL_TO_REAL_COMM(comm);
+  MPI_Group realGroup = VIRTUAL_TO_REAL_GROUP(group);
+  JUMP_TO_LOWER_HALF(lh_info.fsaddr);
+  retval = NEXT_FUNC(Comm_create)(realComm, realGroup, newcomm);
+  RETURN_TO_UPPER_HALF();
+  if (retval == MPI_SUCCESS && MPI_LOGGING()) {
+    MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
+    VirtualGlobalCommId::instance().createGlobalId(virtComm);
+    *newcomm = virtComm;
+    active_comms.insert(virtComm);
+    LOG_CALL(restoreComms, Comm_create, comm, group, virtComm);
+  }
+  DMTCP_PLUGIN_ENABLE_CKPT();
+  return retval;
 }
 
 USER_DEFINED_WRAPPER(int, Abort, (MPI_Comm) comm, (int) errorcode)
@@ -294,18 +290,15 @@ MPI_Comm_create_group_internal(MPI_Comm comm, MPI_Group group, int tag,
 USER_DEFINED_WRAPPER(int, Comm_create_group, (MPI_Comm) comm,
                      (MPI_Group) group, (int) tag, (MPI_Comm *) newcomm)
 {
-  std::function<int()> realBarrierCb = [=]() {
-    int retval = MPI_Comm_create_group_internal(comm, group, tag, newcomm);
-    if (retval == MPI_SUCCESS && MPI_LOGGING()) {
-      MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
-      VirtualGlobalCommId::instance().createGlobalId(virtComm);
-      *newcomm = virtComm;
-      active_comms.insert(virtComm);
-      LOG_CALL(restoreComms, Comm_create_group, comm, group, tag, virtComm);
-    }
-    return retval;
-  };
-  return twoPhaseCommit(comm, realBarrierCb);
+  int retval = MPI_Comm_create_group_internal(comm, group, tag, newcomm);
+  if (retval == MPI_SUCCESS && MPI_LOGGING()) {
+    MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
+    VirtualGlobalCommId::instance().createGlobalId(virtComm);
+    *newcomm = virtComm;
+    active_comms.insert(virtComm);
+    LOG_CALL(restoreComms, Comm_create_group, comm, group, tag, virtComm);
+  }
+  return retval;
 }
 
 PMPI_IMPL(int, MPI_Comm_size, MPI_Comm comm, int *world_size)

@@ -28,7 +28,7 @@
 #include "p2p_log_replay.h"
 #include "p2p_drain_send_recv.h"
 #include "record-replay.h"
-#include "two-phase-algo.h"
+#include "seq_num.h"
 
 #include "config.h"
 #include "dmtcp.h"
@@ -236,60 +236,12 @@ mpi_plugin_event_hook(DmtcpEvent_t event, DmtcpEventData_t *data)
       break;
 
     case DMTCP_EVENT_PRESUSPEND:
-      // drainMpiCollectives() will send worker state and get coord response.
-      // Unfortunately, dmtcp_global_barrier()/DMT_BARRIER can't send worker
-      // state and get a coord responds.  So, drainMpiCollective() will use the
-      // special messages:  DMT_MPI_PRESUSPEND and DMT_MPI_PRESUSPEND_RESPONSE
-      // 'INTENT' (intend to ckpt) acts as the first corodinator response.
-      // * drainMpiCollective() calls preSuspendBarrier()
-      // * mpi_presuspend_barrier() calls waitForMpiPresuspendBarrier()
-      // FIXME:  See commant at: dmtcpplugin.cpp:'case DMTCP_EVENT_PRESUSPEND'
-      {
-        query_t coord_response = INTENT;
-        int64_t round = 0;
-        while (1) {
-          // FIXME: see informCoordinator...() for the 2pc_data that we send
-          //       to the coordinator.  Now, return it and use it below.
-          rank_state_t data_to_coord = drainMpiCollectives(coord_response);
-
-          string barrierId = "MANA-PRESUSPEND-" + jalib::XToString(round);
-          string csId = "MANA-PRESUSPEND-CS-" + jalib::XToString(round);
-          string commId = "MANA-PRESUSPEND-COMM-" + jalib::XToString(round);
-          int64_t commKey = (int64_t) data_to_coord.comm;
-
-          if (data_to_coord.st == IN_CS) {
-            dmtcp_kvdb64(DMTCP_KVDB_INCRBY, csId.c_str(), 0, 1);
-            dmtcp_kvdb64(DMTCP_KVDB_OR, commId.c_str(), commKey, 1);
-          }
-
-          dmtcp_global_barrier(barrierId.c_str());
-
-          int64_t counter;
-          if (dmtcp_kvdb64_get(csId.c_str(), 0, &counter) == -1) {
-            // No rank published IN_CS state.
-            coord_response == SAFE_TO_CHECKPOINT;
-            break;
-          }
-
-          int64_t commStatus;
-          if (dmtcp_kvdb64_get(commId.c_str(), commKey, &commStatus) == -1) {
-            // No rank in our communicator is in CS; set our state to
-            // WAIT_STRAGGLER
-            coord_response = WAIT_STRAGGLER;
-          } else if (data_to_coord.st == PHASE_1) {
-            // We are in Phase 1, so we get a free pass.
-            coord_response = FREE_PASS;
-          }
-
-          round++;
-        }
-      }
+      drainMpiCollectives(); // seq_num.cpp
       break;
 
     case DMTCP_EVENT_PRECHECKPOINT:
-      logIbarrierIfInTrivBarrier(); // two-phase-algo.cpp
       dmtcp_local_barrier("MPI:GetLocalLhMmapList");
-      getLhMmapList(); // two-phase-algo.cpp
+      getLhMmapList();
       dmtcp_local_barrier("MPI:GetLocalRankInfo");
       getLocalRankInfo(); // p2p_log_replay.cpp
       dmtcp_global_barrier("MPI:update-ckpt-dir-by-rank");
@@ -301,17 +253,14 @@ mpi_plugin_event_hook(DmtcpEvent_t event, DmtcpEventData_t *data)
       computeUnionOfCkptImageAddresses();
 
     case DMTCP_EVENT_RESUME:
-      clearPendingCkpt(); // two-phase-algo.cpp
       dmtcp_local_barrier("MPI:Reset-Drain-Send-Recv-Counters");
       resetDrainCounters(); // p2p_drain_send_recv.cpp
+      seq_num_reset();
       break;
 
     case DMTCP_EVENT_RESTART:
-      save2pcGlobals(); // two-phase-algo.cpp
       dmtcp_local_barrier("MPI:updateEnviron");
       updateLhEnviron(); // mpi-plugin.cpp
-      dmtcp_local_barrier("MPI:Clear-Pending-Ckpt-Msg-Post-Restart");
-      clearPendingCkpt(); // two-phase-algo.cpp
       dmtcp_local_barrier("MPI:Reset-Drain-Send-Recv-Counters");
       resetDrainCounters(); // p2p_drain_send_recv.cpp
       dmtcp_global_barrier("MPI:restoreMpiLogState");
@@ -319,7 +268,8 @@ mpi_plugin_event_hook(DmtcpEvent_t event, DmtcpEventData_t *data)
       dmtcp_global_barrier("MPI:record-replay.cpp-void");
       replayMpiP2pOnRestart(); // p2p_log_replay.cpp
       dmtcp_local_barrier("MPI:p2p_log_replay.cpp-void");
-      restore2pcGlobals(); // two-phase-algo.cpp
+      seq_num_reset();
+      dmtcp_local_barrier("MPI:seq_num_reset");
       break;
 
     default:
