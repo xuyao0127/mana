@@ -85,6 +85,7 @@ USER_DEFINED_WRAPPER(int, Bcast,
   retval = NEXT_FUNC(Bcast)(buffer, count, realType, root, realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 #endif
@@ -124,6 +125,7 @@ USER_DEFINED_WRAPPER(int, Barrier, (MPI_Comm) comm)
   retval = NEXT_FUNC(Barrier)(realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -167,6 +169,7 @@ USER_DEFINED_WRAPPER(int, Allreduce,
   }
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -186,6 +189,7 @@ USER_DEFINED_WRAPPER(int, Reduce,
                      realType, realOp, root, realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -229,6 +233,7 @@ USER_DEFINED_WRAPPER(int, Reduce_scatter,
                                      realType, realOp, realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -259,6 +264,7 @@ USER_DEFINED_WRAPPER(int, Alltoall,
   commit_begin(comm, GENERATE_FNC_STRING(Alltoall));
   retval = MPI_Alltoall_internal(sendbuf, sendcount, sendtype,
                                  recvbuf, recvcount, recvtype, comm);
+  commit_finish(comm);
   return retval;
 }
 
@@ -281,6 +287,7 @@ USER_DEFINED_WRAPPER(int, Alltoallv,
                                 realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -300,6 +307,7 @@ USER_DEFINED_WRAPPER(int, Gather, (const void *) sendbuf, (int) sendcount,
                              root, realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -320,6 +328,7 @@ USER_DEFINED_WRAPPER(int, Gatherv, (const void *) sendbuf, (int) sendcount,
                               root, realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -339,6 +348,7 @@ USER_DEFINED_WRAPPER(int, Scatter, (const void *) sendbuf, (int) sendcount,
                               root, realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -359,6 +369,7 @@ USER_DEFINED_WRAPPER(int, Scatterv, (const void *) sendbuf,
                                root, realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -378,6 +389,7 @@ USER_DEFINED_WRAPPER(int, Allgather, (const void *) sendbuf, (int) sendcount,
                                 realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -398,6 +410,7 @@ USER_DEFINED_WRAPPER(int, Allgatherv, (const void *) sendbuf, (int) sendcount,
                                  realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 
@@ -416,6 +429,7 @@ USER_DEFINED_WRAPPER(int, Scan, (const void *) sendbuf, (void *) recvbuf,
                            realType, realOp, realComm);
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm);
   return retval;
 }
 #endif // #ifndef MPI_COLLECTIVE_P2P

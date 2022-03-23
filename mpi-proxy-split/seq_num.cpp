@@ -1,7 +1,8 @@
 #include <mpi.h>
 
-#include <unordered_map>
+#include <map>
 #include <pthread.h>
+#include <semaphore.h>
 
 #include "jassert.h"
 #include "seq_num.h"
@@ -10,203 +11,171 @@
 
 using namespace dmtcp_mpi;
 
-#define DB_NONE_IN_CS 0
 #define DB_CONVERGED 1
 
-// #define DEBUG_SEQ_NUM
+#define DEBUG_SEQ_NUM
 
 extern int g_world_rank;
-unsigned int global_comm_id;
-bool ckpt_pending;
-bool first_time_blocking;
-bool freepass;
-bool should_update_db;
-pthread_mutex_t block_cv_lock;
-pthread_cond_t block_cv;
-pthread_mutex_t update_cv_lock;
-pthread_cond_t update_cv;
+extern int g_world_size;
+volatile bool ckpt_pending;
+volatile bool in_cs;
+pthread_rwlock_t seq_num_lock;
+sem_t user_thread_sem;
+sem_t ckpt_thread_sem;
 std::map<unsigned int, unsigned int> seq_num;
 std::map<unsigned int, unsigned int> target_seq_num;
 typedef std::pair<unsigned int, unsigned int> comm_seq_pair_t;
 
-void release_user_thread();
-void update_db();
-
 void seq_num_init() {
-#ifdef DEBUG_SEQ_NUM
-  printf("seq_num initialized\n");
-  fflush(stdout);
-#endif
   ckpt_pending = false;
-  first_time_blocking = true;
-  freepass = false;
-  current_state = NOT_IN_CS;
-  pthread_mutex_init(&block_cv_lock, NULL);
-  pthread_cond_init(&block_cv, NULL);
-  pthread_mutex_init(&update_cv_lock, NULL);
-  pthread_cond_init(&update_cv, NULL);
+  pthread_rwlock_init(&seq_num_lock, NULL);
+  sem_init(&user_thread_sem, 0, 0);
+  sem_init(&ckpt_thread_sem, 0, 0);
 }
 
 void seq_num_reset() {
-  freepass = false;
-  first_time_blocking = true;
   ckpt_pending = false;
   for (comm_seq_pair_t i : seq_num) {
     i.second = 0;
   }
 
-  // realse user thread
-  pthread_mutex_lock(&block_cv_lock);
-  pthread_cond_signal(&block_cv);
-  pthread_mutex_unlock(&block_cv_lock);
+  // release user thread
+  sem_trywait(&user_thread_sem);
+  sem_post(&user_thread_sem);
 }
 
 void seq_num_destroy() {
-  pthread_mutex_destroy(&block_cv_lock);
-  pthread_cond_destroy(&block_cv);
-  pthread_mutex_destroy(&update_cv_lock);
-  pthread_cond_destroy(&update_cv);
+  pthread_rwlock_destroy(&seq_num_lock);
+  sem_destroy(&user_thread_sem);
+  sem_destroy(&ckpt_thread_sem);
 }
 
-// FIXME: Combine two lock/unlock functions into one
-void block_user_thread() {
-#ifdef DEBUG_SEQ_NUM
-  printf("rank %d user thread blocked\n", g_world_rank);
-  fflush(stdout);
-#endif
-  pthread_mutex_lock(&block_cv_lock);
-  freepass = false;
-  while (ckpt_pending && !freepass) {
-    pthread_cond_wait(&block_cv, &block_cv_lock);
+void check_seq_num(int *converged, int *new_target_found) {
+  unsigned int comm_id;
+  unsigned int seq;
+  *converged = 1;
+  *new_target_found = 0;
+  for (comm_seq_pair_t pair : seq_num) {
+    comm_id = pair.first;
+    seq = pair.second;
+    if (target_seq_num[comm_id] > seq_num[comm_id]) {
+      *converged = 0;
+    } else if (target_seq_num[comm_id] < seq_num[comm_id]) {
+      *new_target_found = 1;
+    }
   }
-  pthread_mutex_unlock(&block_cv_lock);
-#ifdef DEBUG_SEQ_NUM
-  printf("rank %d user thread released\n", g_world_rank);
-  fflush(stdout);
-#endif
-}
-
-void release_user_thread() {
-#ifdef DEBUG_SEQ_NUM
-  printf("rank %d user thread releasing\n", g_world_rank);
-  fflush(stdout);
-#endif
-  pthread_mutex_lock(&block_cv_lock);
-  freepass = true;
-  pthread_cond_signal(&block_cv);
-  pthread_mutex_unlock(&block_cv_lock);
-}
-
-void wait_to_update_db() {
-#ifdef DEBUG_SEQ_NUM
-  printf("rank %d ckpt thread blocked\n", g_world_rank);
-  fflush(stdout);
-#endif
-  pthread_mutex_lock(&update_cv_lock);
-  should_update_db = false;
-  while (!should_update_db) {
-    pthread_cond_wait(&update_cv, &update_cv_lock);
-  }
-  pthread_mutex_unlock(&update_cv_lock);
-#ifdef DEBUG_SEQ_NUM
-  printf("rank %d ckpt thread released\n", g_world_rank);
-  fflush(stdout);
-#endif
-}
-
-void update_db() {
-#ifdef DEBUG_SEQ_NUM
-  printf("rank %d ckpt thread releasing\n", g_world_rank);
-  fflush(stdout);
-#endif
-  pthread_mutex_lock(&update_cv_lock);
-  should_update_db = true;
-  pthread_cond_signal(&update_cv);
-  pthread_mutex_unlock(&update_cv_lock);
 }
 
 void commit_begin(MPI_Comm comm, const char *name) {
-  global_comm_id = VirtualGlobalCommId::instance().getGlobalId(comm);
+  pthread_rwlock_rdlock(&seq_num_lock);
+  int converged = 0;
+  int new_target_found = 0;
+  unsigned int global_comm_id =
+    VirtualGlobalCommId::instance().getGlobalId(comm);
   if (ckpt_pending) {
-    bool target_reached = true;
-    bool new_target_found = false;
-    for (comm_seq_pair_t pair : seq_num) {
-      int comm_id = pair.first;
-      int seq = pair.second;
-      if (target_seq_num[comm_id] < seq) {
-        new_target_found = true;
-        break;
-      } else if (target_seq_num[comm_id] > seq) {
-        target_reached = false;
-        break;
-      }
-    }
-    if (target_reached || new_target_found) {
-      update_db();
-      block_user_thread();
-    }
+#if 0
+    sem_post(&ckpt_thread_sem);
+    sem_wait(&user_thread_sem);
+#else
+    sem_wait(&user_thread_sem);
+    printf("rank %d comm id %x seq %d\n", g_world_rank, global_comm_id, seq_num[global_comm_id]);
+    fflush(stdout);
   }
-  seq_num[global_comm_id]++;
-#ifdef DEBUG_SEQ_NUM
-  printf("rank %d %s comm %x seq %u\n", g_world_rank, name, 
-         global_comm_id, seq_num[global_comm_id]);
-  fflush(stdout);
 #endif
+  seq_num[global_comm_id]++;
+  in_cs = true;
+  pthread_rwlock_unlock(&seq_num_lock);
+}
+
+void commit_finish(MPI_Comm comm) {
+  pthread_rwlock_rdlock(&seq_num_lock);
+  in_cs = false;
+  pthread_rwlock_unlock(&seq_num_lock);
+}
+
+void upload_seq_num() {
+  unsigned int comm_id;
+  unsigned int seq;
+  for (comm_seq_pair_t pair : seq_num) {
+    comm_id = pair.first;
+    seq = pair.second;
+    dmtcp_kvdb64(DMTCP_KVDB_MAX, "/mana/comm-seq-max", comm_id, seq);
+  }
+}
+
+void download_targets() {
+  int64_t max_seq = 0;
+  unsigned int comm_id;
+  for (comm_seq_pair_t pair : seq_num) {
+    comm_id = pair.first;
+    dmtcp_kvdb64_get("/mana/comm-seq-max", comm_id, &max_seq);
+    target_seq_num[comm_id] = max_seq;
+  }
 }
 
 void drainMpiCollectives() {
-  int64_t converged;
-  int64_t max_seq;
-  unsigned int comm_id;
-  unsigned int seq;
+  int64_t all_converged;
+  int converged = 0;
+  int new_target_found = 0;
+
+  pthread_rwlock_wrlock(&seq_num_lock);
   ckpt_pending = true;
+  upload_seq_num();
+  dmtcp_global_barrier("mana/comm-seq-round");
+  download_targets();
+  pthread_rwlock_unlock(&seq_num_lock);
 
-  while (1) {
-    // Reset golbal flags
-    converged = 1;
+  all_converged = 0;
+  while (all_converged != g_world_size) {
+    // Reset all converged scaler
     if (g_world_rank == 0) {
-      dmtcp_kvdb64(DMTCP_KVDB_OR, "/mana/seq-num-global-states", DB_CONVERGED, 1);
+      dmtcp_kvdb64(DMTCP_KVDB_SET, "/mana/seq-num-states",
+                   DB_CONVERGED, 0);
     }
-
-    for (comm_seq_pair_t pair : seq_num) {
-      comm_id = pair.first;
-      seq = pair.second;
-      dmtcp_kvdb64(DMTCP_KVDB_MAX, "/mana/comm-seq-max", comm_id, seq);
-    }
-    dmtcp_global_barrier("mana/comm-seq-round");
-
-    for (comm_seq_pair_t pair : seq_num) {
-      comm_id = pair.first;
-      seq = pair.second;
-      dmtcp_kvdb64_get("/mana/comm-seq-max", comm_id, &max_seq);
-
-      // Update target sequence number hashmap.
-      target_seq_num[comm_id] = max_seq;
-
-      if (max_seq > seq) {
-        // This rank is behind.
-        converged = 0;
-        printf("SEQ rank %d comm_id %x man_seq %ld seq %u\n", g_world_rank, comm_id, max_seq, seq);
-        fflush(stdout);
+    dmtcp_global_barrier("mana/comm-seq-round-start");
+#if 0
+    while (1) {
+      // Check local sequence number and targets
+      check_seq_num(&converged, &new_target_found);
+      if (converged || new_target_found) {
+        dmtcp_global_barrier("mana/comm-seq-round-finish");
+        break;
+      } else {
+        // Notify the user thread to continue and resume when a new
+        // communication is found.
+        sem_post(&user_thread_sem);
+        sem_wait(&ckpt_thread_sem);
       }
     }
+#endif
+    // Only ranks found new targets update the global sequence numbers
+    if (new_target_found) {
+      upload_seq_num();
+    }
+    dmtcp_global_barrier("mana/comm-seq-round-finish");
+    download_targets();
+    // After downloading new targets, if all ranks agrees that local
+    // sequence numbers are the same as new targets, we are done.
+    check_seq_num(&converged, &new_target_found);
     if (!converged) {
-        dmtcp_kvdb64(DMTCP_KVDB_AND, "/mana/seq-num-states",
-                     DB_CONVERGED, converged);
-        // Give free pass to the user thread.
-        release_user_thread();
-        wait_to_update_db();
+      printf("rank %d not converged\n", g_world_rank);
+      fflush(stdout);
+      // Notify the user thread to continue and resume when a new
+      // communication is found.
+      sem_trywait(&user_thread_sem);
+      sem_post(&user_thread_sem);
     }
+    dmtcp_kvdb64(DMTCP_KVDB_INCRBY, "/mana/seq-num-states",
+                 DB_CONVERGED, converged);
     dmtcp_global_barrier("mana/comm-seq-round");
-
-    dmtcp_kvdb64_get("/mana/seq-num-global-states", DB_CONVERGED, &converged);
-    if (converged) {
-      // Safe to checkpoint
-      break;
-    }
+    dmtcp_kvdb64_get("/mana/seq-num-states",
+                     DB_CONVERGED, &all_converged);
   }
- #ifdef DEBUG_SEQ_NUM
-  printf("Sequence Number algorithm completed\n");
+  while (in_cs) {
+    // sleep(1);
+  }
+  #ifdef DEBUG_SEQ_NUM
+  printf("rank %d sequence number algorithm completed\n", g_world_rank);
   fflush(stdout);
- #endif
+  #endif
 }
