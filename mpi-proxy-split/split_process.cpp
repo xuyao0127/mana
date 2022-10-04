@@ -96,7 +96,7 @@ static inline void setFS(unsigned long fsbase)
 SwitchContext::SwitchContext(unsigned long lowerHalfFs)
 {
   this->lowerHalfFs = lowerHalfFs;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0) || defined(HAS_FSGSBASE)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0) || defined(HAS_FSGSBASE)
   // This user-space variant is equivalent, but faster.
   // Optionally, this->upperHalfFs could be cached if MPI_THREAD_MULTIPLE
   //   was not specified, but this should already be fast.
@@ -114,7 +114,7 @@ SwitchContext::SwitchContext(unsigned long lowerHalfFs)
 
 SwitchContext::~SwitchContext()
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0) || defined(HAS_FSGSBASE)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0) || defined(HAS_FSGSBASE)
   // This user-space variant is equivalent, but faster.
   setFS(this->upperHalfFs);
 #else

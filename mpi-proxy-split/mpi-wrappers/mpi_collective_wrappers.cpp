@@ -497,7 +497,6 @@ USER_DEFINED_WRAPPER(int, Comm_split, (MPI_Comm) comm, (int) color, (int) key,
   RETURN_TO_UPPER_HALF();
   if (retval == MPI_SUCCESS && MPI_LOGGING()) {
     MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
-    VirtualGlobalCommId::instance().createGlobalId(virtComm);
     *newcomm = virtComm;
     active_comms.insert(virtComm);
     LOG_CALL(restoreComms, Comm_split, comm, color, key, *newcomm);
@@ -519,7 +518,6 @@ USER_DEFINED_WRAPPER(int, Comm_dup, (MPI_Comm) comm, (MPI_Comm *) newcomm)
   RETURN_TO_UPPER_HALF();
   if (retval == MPI_SUCCESS && MPI_LOGGING()) {
     MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
-    VirtualGlobalCommId::instance().createGlobalId(virtComm);
     *newcomm = virtComm;
     active_comms.insert(virtComm);
     LOG_CALL(restoreComms, Comm_dup, comm, *newcomm);

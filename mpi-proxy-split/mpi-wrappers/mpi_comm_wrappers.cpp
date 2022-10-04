@@ -118,32 +118,29 @@ USER_DEFINED_WRAPPER(int, Comm_rank, (MPI_Comm) comm, (int *) world_rank)
 USER_DEFINED_WRAPPER(int, Comm_create, (MPI_Comm) comm, (MPI_Group) group,
                      (MPI_Comm *) newcomm)
 {
-  std::function<int()> realBarrierCb = [=]() {
-    int retval;
-    DMTCP_PLUGIN_DISABLE_CKPT();
-    MPI_Comm realComm = VIRTUAL_TO_REAL_COMM(comm);
-    MPI_Group realGroup = VIRTUAL_TO_REAL_GROUP(group);
-    JUMP_TO_LOWER_HALF(lh_info.fsaddr);
-    retval = NEXT_FUNC(Comm_create)(realComm, realGroup, newcomm);
-    RETURN_TO_UPPER_HALF();
-    if (retval == MPI_SUCCESS && MPI_LOGGING()) {
-      MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
-      unsigned int gid = VirtualGlobalCommId::instance()
-        .createGlobalId(virtComm);
-      *newcomm = virtComm;
-      active_comms.insert(virtComm);
-      std::map<unsigned int, unsigned long>::iterator it =
-        seq_num.find(gid);
-      if (it == seq_num.end()) {
-        seq_num[gid] = 0;
-        target[gid] = 0;
-      }
-      LOG_CALL(restoreComms, Comm_create, comm, group, virtComm);
+  int retval;
+  commit_begin(comm, false);
+  DMTCP_PLUGIN_DISABLE_CKPT();
+  MPI_Comm realComm = VIRTUAL_TO_REAL_COMM(comm);
+  MPI_Group realGroup = VIRTUAL_TO_REAL_GROUP(group);
+  JUMP_TO_LOWER_HALF(lh_info.fsaddr);
+  retval = NEXT_FUNC(Comm_create)(realComm, realGroup, newcomm);
+  RETURN_TO_UPPER_HALF();
+  if (retval == MPI_SUCCESS && MPI_LOGGING()) {
+    MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
+    *newcomm = virtComm;
+    active_comms.insert(virtComm);
+    std::unordered_map<MPI_Comm, unsigned long>::iterator it =
+      seq_num.find(comm);
+    if (it == seq_num.end()) {
+      seq_num[comm] = 0;
+      target[comm] = 0;
     }
-    DMTCP_PLUGIN_ENABLE_CKPT();
-    return retval;
-  };
-  return twoPhaseCommit(comm, realBarrierCb);
+    LOG_CALL(restoreComms, Comm_create, comm, group, virtComm);
+  }
+  DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_finish(comm, false);
+  return retval;
 }
 
 USER_DEFINED_WRAPPER(int, Abort, (MPI_Comm) comm, (int) errorcode)
@@ -213,10 +210,8 @@ USER_DEFINED_WRAPPER(int, Comm_free, (MPI_Comm *) comm)
     // realComm = REMOVE_OLD_COMM(*comm);
     // CLEAR_COMM_LOGS(*comm);
     active_comms.erase(*comm);
-    unsigned int gid = VirtualGlobalCommId::instance().getGlobalId(*comm);
-#if 0 
-    seq_num.erase(gid);
-#endif
+    seq_num.erase(*comm);
+    target.erase(*comm);
     LOG_CALL(restoreComms, Comm_free, *comm);
   }
   DMTCP_PLUGIN_ENABLE_CKPT();
@@ -355,7 +350,6 @@ USER_DEFINED_WRAPPER(int, Comm_split_type, (MPI_Comm) comm, (int) split_type,
   RETURN_TO_UPPER_HALF();
   if (retval == MPI_SUCCESS && MPI_LOGGING()) {
     MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
-    VirtualGlobalCommId::instance().createGlobalId(virtComm);
     *newcomm = virtComm;
     active_comms.insert(virtComm);
     LOG_CALL(restoreComms, Comm_split_type, comm,
@@ -482,18 +476,16 @@ MPI_Comm_create_group_internal(MPI_Comm comm, MPI_Group group, int tag,
 USER_DEFINED_WRAPPER(int, Comm_create_group, (MPI_Comm) comm,
                      (MPI_Group) group, (int) tag, (MPI_Comm *) newcomm)
 {
-  std::function<int()> realBarrierCb = [=]() {
-    int retval = MPI_Comm_create_group_internal(comm, group, tag, newcomm);
-    if (retval == MPI_SUCCESS && MPI_LOGGING()) {
-      MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
-      VirtualGlobalCommId::instance().createGlobalId(virtComm);
-      *newcomm = virtComm;
-      active_comms.insert(virtComm);
-      LOG_CALL(restoreComms, Comm_create_group, comm, group, tag, virtComm);
-    }
-    return retval;
-  };
-  return twoPhaseCommit(comm, realBarrierCb);
+  commit_begin(comm, false);
+  int retval = MPI_Comm_create_group_internal(comm, group, tag, newcomm);
+  if (retval == MPI_SUCCESS && MPI_LOGGING()) {
+    MPI_Comm virtComm = ADD_NEW_COMM(*newcomm);
+    *newcomm = virtComm;
+    active_comms.insert(virtComm);
+    LOG_CALL(restoreComms, Comm_create_group, comm, group, tag, virtComm);
+  }
+  commit_finish(comm, false);
+  return retval;
 }
 
 PMPI_IMPL(int, MPI_Comm_size, MPI_Comm comm, int *world_size)

@@ -129,7 +129,6 @@ USER_DEFINED_WRAPPER(int, Cart_sub, (MPI_Comm) comm,
     int ndims = 0;
     MPI_Cartdim_get(comm, &ndims);
     MPI_Comm virtComm = ADD_NEW_COMM(*new_comm);
-    VirtualGlobalCommId::instance().createGlobalId(virtComm);
     *new_comm = virtComm;
     active_comms.insert(virtComm);
     FncArg rs = CREATE_LOG_BUF(remain_dims, ndims * sizeof(int));
@@ -177,44 +176,41 @@ USER_DEFINED_WRAPPER(int, Cart_create, (MPI_Comm)old_comm, (int)ndims,
   JWARNING(g_cartesian_properties.comm_old_size == -1)
     .Text("MPI_Cart_create() called more than once. Current implementation "
           "only supports one cartesian communicator.");
+  int retval;
+  commit_begin(comm, false);
+  DMTCP_PLUGIN_DISABLE_CKPT();
+  MPI_Comm realComm = VIRTUAL_TO_REAL_COMM(old_comm);
+  JUMP_TO_LOWER_HALF(lh_info.fsaddr);
+  retval = NEXT_FUNC(Cart_create)(realComm, ndims, dims, periods, reorder,
+                                  comm_cart);
+  RETURN_TO_UPPER_HALF();
+  g_cartesian_properties.ndims = ndims;
+  g_cartesian_properties.reorder = reorder;
+  for (int i = 0; i < ndims; i++) {
+    g_cartesian_properties.dimensions[i] = dims[i];
+    g_cartesian_properties.periods[i] = periods[i];
+  }
+  MPI_Comm_size(old_comm, &g_cartesian_properties.comm_old_size);
+  MPI_Comm_size(*comm_cart, &g_cartesian_properties.comm_cart_size);
+  MPI_Comm_rank(old_comm, &g_cartesian_properties.comm_old_rank);
+  MPI_Comm_rank(*comm_cart, &g_cartesian_properties.comm_cart_rank);
+  MPI_Cart_coords(*comm_cart, g_cartesian_properties.comm_cart_rank,
+                  g_cartesian_properties.ndims,
+                  g_cartesian_properties.coordinates);
 
-  std::function<int()> realBarrierCb = [=]() {
-    int retval;
-    DMTCP_PLUGIN_DISABLE_CKPT();
-    MPI_Comm realComm = VIRTUAL_TO_REAL_COMM(old_comm);
-    JUMP_TO_LOWER_HALF(lh_info.fsaddr);
-    retval = NEXT_FUNC(Cart_create)(realComm, ndims, dims, periods, reorder,
-                                    comm_cart);
-    RETURN_TO_UPPER_HALF();
-    g_cartesian_properties.ndims = ndims;
-    g_cartesian_properties.reorder = reorder;
-    for (int i = 0; i < ndims; i++) {
-      g_cartesian_properties.dimensions[i] = dims[i];
-      g_cartesian_properties.periods[i] = periods[i];
-    }
-    MPI_Comm_size(old_comm, &g_cartesian_properties.comm_old_size);
-    MPI_Comm_size(*comm_cart, &g_cartesian_properties.comm_cart_size);
-    MPI_Comm_rank(old_comm, &g_cartesian_properties.comm_old_rank);
-    MPI_Comm_rank(*comm_cart, &g_cartesian_properties.comm_cart_rank);
-    MPI_Cart_coords(*comm_cart, g_cartesian_properties.comm_cart_rank,
-                    g_cartesian_properties.ndims,
-                    g_cartesian_properties.coordinates);
+  if (retval == MPI_SUCCESS && MPI_LOGGING()) {
+    MPI_Comm virtComm = ADD_NEW_COMM(*comm_cart);
+    *comm_cart = virtComm;
+    active_comms.insert(virtComm);
 
-    if (retval == MPI_SUCCESS && MPI_LOGGING()) {
-      MPI_Comm virtComm = ADD_NEW_COMM(*comm_cart);
-      VirtualGlobalCommId::instance().createGlobalId(virtComm);
-      *comm_cart = virtComm;
-      active_comms.insert(virtComm);
-
-      FncArg ds = CREATE_LOG_BUF(dims, ndims * sizeof(int));
-      FncArg ps = CREATE_LOG_BUF(periods, ndims * sizeof(int));
-      LOG_CALL(restoreCarts, Cart_create, old_comm, ndims, ds, ps, reorder,
-               virtComm);
-    }
-    DMTCP_PLUGIN_ENABLE_CKPT();
-    return retval;
-  };
-  return twoPhaseCommit(old_comm, realBarrierCb);
+    FncArg ds = CREATE_LOG_BUF(dims, ndims * sizeof(int));
+    FncArg ps = CREATE_LOG_BUF(periods, ndims * sizeof(int));
+    LOG_CALL(restoreCarts, Cart_create, old_comm, ndims, ds, ps, reorder,
+             virtComm);
+  }
+  DMTCP_PLUGIN_ENABLE_CKPT();
+  commit_begin(comm, false);
+  return retval;
 }
 #else
 
@@ -251,7 +247,6 @@ USER_DEFINED_WRAPPER(int, Cart_create, (MPI_Comm) old_comm, (int) ndims,
   RETURN_TO_UPPER_HALF();
   if (retval == MPI_SUCCESS && MPI_LOGGING()) {
     MPI_Comm virtComm = ADD_NEW_COMM(*comm_cart);
-    VirtualGlobalCommId::instance().createGlobalId(virtComm);
     *comm_cart = virtComm;
     active_comms.insert(virtComm);
     FncArg ds = CREATE_LOG_BUF(dims, ndims * sizeof(int));
