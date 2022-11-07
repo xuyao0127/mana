@@ -88,6 +88,8 @@ mana_state_t mana_state = UNKNOWN_STATE;
 
 ProcSelfMaps *preMpiInitMaps = nullptr;
 ProcSelfMaps *postMpiInitMaps = nullptr;
+uint64_t lower_half_timer = 0;
+uint64_t wrapper_timer = 0;
 // #define DEBUG
 
 #undef dmtcp_skip_memory_region_ckpting
@@ -714,6 +716,7 @@ mpi_plugin_event_hook(DmtcpEvent_t event, DmtcpEventData_t *data)
     case DMTCP_EVENT_INIT: {
       JTRACE("*** DMTCP_EVENT_INIT");
       JASSERT(dmtcp_get_real_tid != NULL);
+      uint64_t setup_timer = __rdtsc();
       initialize_signal_handlers();
       initialize_segv_handler();
       JASSERT(!splitProcess()).Text("Failed to create, initialize lower half");
@@ -742,6 +745,11 @@ mpi_plugin_event_hook(DmtcpEvent_t event, DmtcpEventData_t *data)
 
       if (CheckAndEnableFsGsBase()) {
         JTRACE("FSGSBASE enabled");
+      }
+      setup_timer = __rdtsc() - setup_timer;
+      if (g_world_rank == 0) {
+        printf("cycles in setup: %lu\n", setup_timer);
+        fflush(stdout);
       }
 
       break;

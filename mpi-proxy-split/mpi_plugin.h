@@ -66,4 +66,7 @@ enum mana_state_t {
 
 extern mana_state_t mana_state;
 
+extern uint64_t lower_half_timer;
+extern uint64_t wrapper_timer;
+
 #endif // ifndef _MPI_PLUGIN_H

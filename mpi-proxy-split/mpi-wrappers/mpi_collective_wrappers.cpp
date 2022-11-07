@@ -19,6 +19,7 @@
  *  <http://www.gnu.org/licenses/>.                                         *
  ****************************************************************************/
 
+#include "x86intrin.h"
 #include "config.h"
 #include "dmtcp.h"
 #include "util.h"
@@ -175,6 +176,7 @@ USER_DEFINED_WRAPPER(int, Allreduce,
                      (int) count, (MPI_Datatype) datatype,
                      (MPI_Op) op, (MPI_Comm) comm)
 {
+  uint64_t wrapper_timer_start = __rdtsc();
   bool passthrough = false;
   commit_begin(comm, passthrough);
   int retval;
@@ -186,6 +188,7 @@ USER_DEFINED_WRAPPER(int, Allreduce,
   JUMP_TO_LOWER_HALF(lh_info.fsaddr);
   // FIXME: Ideally, we should only check FORTRAN_MPI_IN_PLACE
   //        in the Fortran wrapper.
+  uint64_t lower_half_timer_start = __rdtsc();
   if (sendbuf == FORTRAN_MPI_IN_PLACE) {
     retval = NEXT_FUNC(Allreduce)(MPI_IN_PLACE, recvbuf, count,
         realType, realOp, realComm);
@@ -193,9 +196,11 @@ USER_DEFINED_WRAPPER(int, Allreduce,
     retval = NEXT_FUNC(Allreduce)(sendbuf, recvbuf, count,
         realType, realOp, realComm);
   }
+  lower_half_timer += __rdtsc() - lower_half_timer_start;
   RETURN_TO_UPPER_HALF();
   DMTCP_PLUGIN_ENABLE_CKPT();
   commit_finish(comm, passthrough);
+  wrapper_timer += __rdtsc() - wrapper_timer_start;
   return retval;
 }
 
