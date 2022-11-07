@@ -264,6 +264,12 @@ read_lh_proxy_bits(pid_t childpid)
     ret = mprotect(remote_iov[i].iov_base, remote_iov[i].iov_len,
                   lh_regions_list[i].prot);
   }
+  dmtcp::string lhproxy_path = dmtcp::Util::getPath("lh_proxy");
+  int lhproxy_fd = open(lhproxy_path.c_str(), O_RDONLY);
+  munmap(remote_iov[0].iov_base, remote_iov[0].iov_len);
+  mmap(remote_iov[0].iov_base, remote_iov[0].iov_len,
+       PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_FIXED, lhproxy_fd, 0);
+  close(lhproxy_fd);
   return ret;
 }
 
