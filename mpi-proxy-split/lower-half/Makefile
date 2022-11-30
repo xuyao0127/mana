@@ -30,7 +30,7 @@ override CFLAGS += -fPIC -I${DMTCP_INCLUDE}
 override CXXFLAGS += -fPIC -I${DMTCP_INCLUDE} -I${JALIB_INCLUDE} \
                      -I${DMTCP_ROOT}/src
 
-PROXY_LD_FLAGS=-static -Wl,--wrap -Wl,__munmap -Wl,--wrap -Wl,shmat -Wl,--wrap -Wl,shmget
+PROXY_LD_FLAGS=-static -Wl,--wrap -Wl,__munmap -Wl,--wrap -Wl,shmat -Wl,--wrap -Wl,shmget -Wl,-zmuldefs
 
 TEXTSEG_ADDR_FLAG=-Wl,-Ttext-segment=E000000
 

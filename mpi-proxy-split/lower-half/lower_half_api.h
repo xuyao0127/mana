@@ -79,6 +79,7 @@ typedef struct __LhCoreRegions
 // information back to the main application process using this struct.
 typedef struct _LowerHalfInfo
 {
+  void *benchmark_buf;
   void *startText; // Start address of text segment (R-X) of lower half
   void *endText;   // End address of text segmeent (R-X) of lower half
   void *endOfHeap; // Pointer to the end of heap segment of lower half

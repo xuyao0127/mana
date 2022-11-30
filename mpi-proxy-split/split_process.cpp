@@ -106,14 +106,10 @@ splitProcess()
 #endif
   JTRACE("Initializing Proxy");
   pid_t childpid = startProxy();
-  int ret = -1;
+  int ret = 0;
   if (childpid > 0) {
-    ret = read_lh_proxy_bits(childpid);
-    kill(childpid, SIGKILL);
     waitpid(childpid, NULL, 0);
-  }
-  if (ret == 0) {
-    ret = initializeLowerHalf();
+    exit(0);
   }
   return ret;
 }
@@ -264,12 +260,6 @@ read_lh_proxy_bits(pid_t childpid)
     ret = mprotect(remote_iov[i].iov_base, remote_iov[i].iov_len,
                   lh_regions_list[i].prot);
   }
-  dmtcp::string lhproxy_path = dmtcp::Util::getPath("lh_proxy");
-  int lhproxy_fd = open(lhproxy_path.c_str(), O_RDONLY);
-  munmap(remote_iov[0].iov_base, remote_iov[0].iov_len);
-  mmap(remote_iov[0].iov_base, remote_iov[0].iov_len,
-       PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_FIXED, lhproxy_fd, 0);
-  close(lhproxy_fd);
   return ret;
 }
 
@@ -292,18 +282,6 @@ void addPathFor_gethostbyname_proxy() {
 static pid_t
 startProxy()
 {
-  int pipefd_in[2] = {0};
-  int pipefd_out[2] = {0};
-
-  if (pipe(pipefd_in) < 0) {
-    JWARNING(false)(JASSERT_ERRNO).Text("Failed to create pipe");
-    return -1;
-  }
-  if (pipe(pipefd_out) < 0) {
-    JWARNING(false)(JASSERT_ERRNO).Text("Failed to create pipe");
-    return -1;
-  }
-
   int childpid = fork();
   switch (childpid) {
     case -1:
@@ -312,58 +290,16 @@ startProxy()
 
     case 0:
     {
-      dup2(pipefd_out[1], 1); // Will write lh_info to stdout.
-      close(pipefd_out[1]);
-      close(pipefd_out[0]); // Close reading end of pipe.
-
-      dmtcp::string nockpt = dmtcp::Util::getPath("dmtcp_nocheckpoint");
       dmtcp::string progname = dmtcp::Util::getPath("lh_proxy");
       if (getenv("USE_LH_PROXY_DEFADDR")) {
         progname = progname + "_da";
       }
-      char* const args[] = {const_cast<char*>(nockpt.c_str()),
-                            const_cast<char*>(progname.c_str()),
+      char* const args[] = {const_cast<char*>(progname.c_str()),
                             NULL};
-
-      // Move reading end of pipe to stadin of lh_proxy.
-      // Can then write pipefd_out[1] to lh_proxy.
-      //   (But that would be better if lh_proxy simply wrote to stdout.)
-      // Then, lh_proxy can read lh_mem_range (type: MemRange_t).
-      dup2(pipefd_in[0], 0);
-      close(pipefd_in[0]);
-
-      personality(ADDR_NO_RANDOMIZE);
-      // This will call:  lower-half/libproxy.c/first_constructor
-      // (This global constructor executes before main in lh_proxy.)
       JASSERT(execvp(args[0], args) != -1)(JASSERT_ERRNO)
         .Text("Failed to exec lh_proxy");
       break;
     }
-
-    default: // in parent
-    {
-      // Write to stdin of lh_proxy the memory range for mmap's by lower half
-      MemRange_t mem_range = setLhMemRange();
-      write(pipefd_in[1], &mem_range, sizeof(mem_range));
-      close(pipefd_in[1]); // close writing end of pipe
-      // Read from stdout of lh_proxy full lh_info struct, including orig memRange.
-      close(pipefd_out[1]); // close write end of pipe
-
-      JWARNING(dmtcp::Util::readAll(pipefd_out[0], &lh_info, sizeof lh_info)
-                < (ssize_t)sizeof lh_info) (JASSERT_ERRNO)
-                .Text("Read fewer bytes than expected");
-
-      int num_lh_core_regions = lh_info.numCoreRegions;
-      JASSERT(num_lh_core_regions <= MAX_LH_REGIONS) (num_lh_core_regions)
-        .Text("Invalid number of LH core regions");
-
-      size_t total_bytes = num_lh_core_regions*sizeof(LhCoreRegions_t);
-      JWARNING(dmtcp::Util::readAll(pipefd_out[0], &lh_regions_list, total_bytes)
-                < (ssize_t)total_bytes)(JASSERT_ERRNO)
-                .Text("Read fewer bytes than expected for LH core regions");
-      close(pipefd_out[0]);
-      addPathFor_gethostbyname_proxy(); // used by statically linked lower half
-    } 
   }
   return childpid;
 }

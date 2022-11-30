@@ -714,45 +714,8 @@ mpi_plugin_event_hook(DmtcpEvent_t event, DmtcpEventData_t *data)
 {
   switch (event) {
     case DMTCP_EVENT_INIT: {
-      JTRACE("*** DMTCP_EVENT_INIT");
-      JASSERT(dmtcp_get_real_tid != NULL);
-      uint64_t setup_timer = __rdtsc();
-      initialize_signal_handlers();
-      initialize_segv_handler();
       JASSERT(!splitProcess()).Text("Failed to create, initialize lower half");
-      seq_num_init();
-      mana_state = RUNNING;
-
-      DmtcpMutexInit(&g_upper_half_fsbase_lock, DMTCP_MUTEX_LLL);
-      if (g_upper_half_fsbase != NULL) {
-        delete g_upper_half_fsbase;
-      }
-
-      g_upper_half_fsbase = new std::unordered_map<pid_t, unsigned long>();
-      g_upper_half_fsbase->insert(std::make_pair(dmtcp_get_real_tid(), getFS()));
-
-      if (g_file_flags_map != NULL) {
-        delete g_file_flags_map;
-      }
-      g_file_flags_map = new map<string, int>();
-
-      // TODO(kapil): Remove from final commit.
-      setenv(MANA_FILE_REGEX_ENV, ".*", 1);
-
-      if (file_regex == NULL && getenv(MANA_FILE_REGEX_ENV) != NULL) {
-        file_regex = new std::regex(getenv(MANA_FILE_REGEX_ENV));
-      }
-
-      if (CheckAndEnableFsGsBase()) {
-        JTRACE("FSGSBASE enabled");
-      }
-      setup_timer = __rdtsc() - setup_timer;
-      if (g_world_rank == 0) {
-        printf("cycles in setup: %lu\n", setup_timer);
-        fflush(stdout);
-      }
-
-      break;
+      exit(0);
     }
     case DMTCP_EVENT_EXIT: {
       JTRACE("*** DMTCP_EVENT_EXIT");

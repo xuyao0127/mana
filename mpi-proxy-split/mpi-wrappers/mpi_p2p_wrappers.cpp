@@ -42,14 +42,11 @@ USER_DEFINED_WRAPPER(int, Send,
                      (int) dest, (int) tag, (MPI_Comm) comm)
 {
   int retval;
-#if 0
+#if 1
   DMTCP_PLUGIN_DISABLE_CKPT();
-  MPI_Comm realComm = VIRTUAL_TO_REAL_COMM(comm);
-  MPI_Datatype realType = VIRTUAL_TO_REAL_TYPE(datatype);
   JUMP_TO_LOWER_HALF(lh_info.fsaddr);
-  retval = NEXT_FUNC(Send)(buf, count, realType, dest, tag, realComm);
+  retval = NEXT_FUNC(Send)(buf, count, datatype, dest, tag, comm);
   RETURN_TO_UPPER_HALF();
-  updateLocalSends(count);
   DMTCP_PLUGIN_ENABLE_CKPT();
 #else
   MPI_Request req;
@@ -136,12 +133,10 @@ USER_DEFINED_WRAPPER(int, Recv,
                      (MPI_Comm) comm, (MPI_Status *) status)
 {
   int retval;
-#if 0
+#if 1
   DMTCP_PLUGIN_DISABLE_CKPT();
-  MPI_Comm realComm = VIRTUAL_TO_REAL_COMM(comm);
-  MPI_Datatype realType = VIRTUAL_TO_REAL_TYPE(datatype);
   JUMP_TO_LOWER_HALF(lh_info.fsaddr);
-  retval = NEXT_FUNC(Recv)(buf, count, realType, source, tag, realComm, status);
+  retval = NEXT_FUNC(Recv)(buf, count, datatype, source, tag, comm, status);
   RETURN_TO_UPPER_HALF();
 #else
   MPI_Request req;

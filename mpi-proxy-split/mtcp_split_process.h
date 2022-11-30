@@ -41,6 +41,7 @@ typedef struct __LhCoreRegions
 // information back to the main application process using this struct.
 typedef struct LowerHalfInfo
 {
+  void *benchmark_buf;
   void *startText;
   void *endText;
   void *endOfHeap;

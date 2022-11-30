@@ -20,6 +20,7 @@
  ****************************************************************************/
 
 #include "x86intrin.h"
+#include <complex.h>
 #include "config.h"
 #include "dmtcp.h"
 #include "util.h"
@@ -109,6 +110,21 @@ USER_DEFINED_WRAPPER(int, Bcast,
   return retval;
 }
 #endif
+
+USER_DEFINED_WRAPPER(int, Bcast_benchmark,
+                     (void *) buffer, (int) count, (MPI_Datatype) datatype,
+                     (int) root, (MPI_Comm) comm, (int) iteration)
+{
+  int retval;
+  DMTCP_PLUGIN_DISABLE_CKPT();
+  JUMP_TO_LOWER_HALF(lh_info.fsaddr);
+  for (int i = 0; i < iteration; i++) {
+    retval = NEXT_FUNC(Bcast)(lh_info.benchmark_buf, count, datatype, root, comm);
+  }
+  RETURN_TO_UPPER_HALF();
+  DMTCP_PLUGIN_ENABLE_CKPT();
+  return retval;
+}
 
 USER_DEFINED_WRAPPER(int, Ibcast,
                      (void *) buffer, (int) count, (MPI_Datatype) datatype,

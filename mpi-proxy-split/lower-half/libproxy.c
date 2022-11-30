@@ -35,6 +35,7 @@
 #include <limits.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <complex.h>
 
 #ifdef SINGLE_CART_REORDER
 #include "../cartesian.h"
@@ -272,68 +273,40 @@ void first_constructor()
   static int firstTime = 1;
 
   if (firstTime) {
-    DLOG(NOISE, "(1) Constructor: We'll pass information to the parent.\n");
-    firstTime = 0;
+    int i,myid, numprocs;
+    int source,count;
+    int msg_size = 4000;
+    double complex *local_buf = (double complex*) malloc(msg_size * sizeof(double complex));
+    double complex *global_buf = (double complex*) malloc(msg_size * sizeof(double complex));
+    MPI_Group group;
 
-    // Pre-initialize this component of lh_info.
-    // mtcp_restart analyzes the memory layout, and then writes this to us.
-    // lh_memRange is the memory range to be used for any mmap's by lower half.
-    read(0, &lh_memRange, sizeof(lh_memRange));
+    MPI_Init(NULL,NULL);
+    MPI_Comm_size(MPI_COMM_WORLD,&numprocs);
+    MPI_Comm_rank(MPI_COMM_WORLD,&myid);
+    MPI_Comm_group(MPI_COMM_WORLD, &group);
 
-    unsigned long start, end, stackstart;
-    unsigned long pstart, pend, pstackstart;
-    unsigned long fsaddr = 0;
-    Area txt, data, heap;
-    getTextSegmentRange(getpid(), &start, &end, &stackstart);
-    getTextSegmentRange(getppid(), &pstart, &pend, &pstackstart);
-    syscall(SYS_arch_prctl, ARCH_GET_FS, &fsaddr);
-    start = ROUND_UP(start);
-    end   = ROUND_UP(end);
-    txt.addr = (VA)start;
-    txt.endAddr = (VA)end;
-    getDataFromMaps(&txt, &heap);
-
-    // TODO: Verify that this gives us the right value every time
-    // Perhaps use proc maps in the future?
-    int argc = *(int*)stackstart;
-    char **argv = (char**)(stackstart + sizeof(unsigned long));
-
-    lh_info.startText = (void*)start;
-    lh_info.endText = (void*)end;
-    lh_info.endOfHeap = (void*)heap.endAddr;
-    lh_info.libc_start_main = &__libc_start_main;
-    lh_info.main = &main;
-    lh_info.libc_csu_init = &__libc_csu_init;
-    lh_info.libc_csu_fini = &__libc_csu_fini;
-    lh_info.fsaddr = (void*)fsaddr;
-    lh_info.lh_AT_PHNUM = getauxval(AT_PHNUM);
-    lh_info.lh_AT_PHDR = getauxval(AT_PHDR);
-    lh_info.g_appContext = (void*)&g_appContext;
-    lh_info.lh_dlsym = (void*)&mydlsym;
-    lh_info.getRankFptr = (void*)&getRank;
-
-#ifdef SINGLE_CART_REORDER
-    lh_info.getCoordinatesFptr = (void*)&getCoordinates;
-    lh_info.getCartesianCommunicatorFptr = (void *)&getCartesianCommunicator;
-#endif
-
-    lh_info.parentStackStart = (void*)pstackstart;
-    lh_info.updateEnvironFptr = (void*)&updateEnviron;
-    lh_info.getMmappedListFptr = (void*)&getMmappedList;
-    lh_info.resetMmappedListFptr = (void*)&resetMmappedList;
-    lh_info.memRange = lh_memRange;
-    lh_info.numCoreRegions = totalRegions;
-    lh_info.getLhRegionsListFptr = (void*)&getLhRegionsList;
-    DLOG(INFO, "startText: %p, endText: %p, endOfHeap; %p\n",
-        lh_info.startText, lh_info.endText, lh_info.endOfHeap);
-
-    // Write lh_info to stdout, for mtcp_split_process.c to read.
-    write(1, &lh_info, sizeof lh_info);
-    // Write LH core regions list to stdout, for the parent process to read.
-    write(1, &lh_core_regions, (sizeof(LhCoreRegions_t)*totalRegions));
-    // It's okay to have an infinite loop here.  Our parent has promised to
-    // kill us after it copies our bits.  So, this child doesn't need to exit.
-    while(1);
+    source = 0;
+    count = msg_size;
+    if(myid == source){
+      for(i=0; i<count; i++)
+        local_buf[i] = 1.0 + 2.0 * I;
+    }
+    double start_time, end_time;
+    MPI_Barrier(MPI_COMM_WORLD);
+    start_time = MPI_Wtime();
+    uint64_t mpi_timer = 0;
+    for (int j = 0; j < 1000000; j++) {
+      MPI_Bcast(global_buf, msg_size, MPI_DOUBLE_COMPLEX, 0, MPI_COMM_WORLD);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    end_time = MPI_Wtime();
+    if (myid == 0) {
+      fprintf(stderr, "Time used: %f seconds\n", end_time - start_time);
+      fflush(stderr);
+    }
+    free(local_buf);
+    free(global_buf);
+    MPI_Finalize();
   } else {
     DLOG(NOISE, "(2) Constructor: Running in the parent?\n");
   }
