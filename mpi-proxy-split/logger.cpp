@@ -35,7 +35,7 @@ void init()
 void record(dmtcp::string const& str)
 {
     if (enableLogging) {
-        uint64_t idx = LoggerRingBufferSize++;
+        uint64_t idx = LoggerRingBufferIdx++;
         loggerRingBuffer[idx % LoggerRingBufferSize] = str;
     }
 }
