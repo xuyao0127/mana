@@ -1,5 +1,6 @@
 #include "logger.h"
 #include "dmtcp.h"
+#include "jconvert.h"
 #include "kvdb.h"
 
 #include <atomic>
@@ -48,6 +49,7 @@ string getLogStr()
 
     if (startIdx < LoggerRingBufferSize) {
         numElements = startIdx;
+        startIdx = 0;
     }
 
     for (size_t i = 0; i < numElements; i++) {
@@ -62,6 +64,7 @@ void publishLogToCoordinator()
 {
     string str = getLogStr();
     string workerPath("/worker/" + string(dmtcp_get_uniquepid_str()));
+    kvdb::set(workerPath, "MpiLog_Entries", jalib::XToString(loggerRingBufferIdx));
     kvdb::set(workerPath, "MpiLog", str);
 }
 
