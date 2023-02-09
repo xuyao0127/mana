@@ -1,0 +1,65 @@
+#include "logger.h"
+#include "dmtcp.h"
+#include "kvdb.h"
+
+#include <atomic>
+
+using namespace dmtcp;
+
+namespace Logger
+{
+size_t LoggerRingBufferSize = 10;
+
+std::atomic<uint64_t> loggerRingBufferIdx(0);
+
+static dmtcp::vector<dmtcp::string> loggerRingBuffer(LoggerRingBufferSize);
+static bool enableLogging = true;
+
+void init()
+{
+    const char *e = getenv("MANA_LOGGER_BUFFER_SIZE");
+    if (e == NULL) {
+        enableLogging = false;
+        return;
+    }
+
+    LoggerRingBufferSize = atoi(e);
+    if (LoggerRingBufferSize > 0) {
+        loggerRingBuffer.resize(LoggerRingBufferSize);
+    }
+}
+
+void record(dmtcp::string const& str)
+{
+    if (enableLogging) {
+        uint64_t idx = LoggerRingBufferSize++;
+        loggerRingBuffer[idx % LoggerRingBufferSize] = str;
+    }
+}
+
+string getLogStr()
+{
+    ostringstream output;
+    uint64_t startIdx = loggerRingBufferIdx;
+    uint64_t numElements = LoggerRingBufferSize;
+
+    if (startIdx < LoggerRingBufferSize) {
+        numElements = startIdx;
+    }
+
+    for (size_t i = 0; i < numElements; i++) {
+        size_t itemIdx = (startIdx + i) % LoggerRingBufferSize;
+        output << (startIdx + i) << "-" << loggerRingBuffer[itemIdx] << "\n";
+    }
+
+    return std::move(output.str());
+}
+
+void publishLogToCoordinator()
+{
+    string str = getLogStr();
+    string workerPath("/worker/" + string(dmtcp_get_uniquepid_str()));
+    kvdb::set(workerPath, "MpiLog", str);
+}
+
+}
