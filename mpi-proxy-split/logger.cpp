@@ -8,7 +8,7 @@ using namespace dmtcp;
 
 namespace Logger
 {
-size_t LoggerRingBufferSize = 10;
+size_t LoggerRingBufferSize = 100;
 
 std::atomic<uint64_t> loggerRingBufferIdx(0);
 
@@ -17,6 +17,9 @@ static bool enableLogging = true;
 
 void init()
 {
+    // Test only: enable by default;
+    return;
+
     const char *e = getenv("MANA_LOGGER_BUFFER_SIZE");
     if (e == NULL) {
         enableLogging = false;
