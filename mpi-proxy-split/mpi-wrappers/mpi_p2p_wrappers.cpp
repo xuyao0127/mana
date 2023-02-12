@@ -97,6 +97,7 @@ USER_DEFINED_WRAPPER(int, Isend,
     logRequestInfo(*request, ISEND_REQUEST);
 #endif
   }
+  Logger::record("Isend: req " + jalib::XToString(*request));
   DMTCP_PLUGIN_ENABLE_CKPT();
   return retval;
 }
@@ -208,6 +209,7 @@ USER_DEFINED_WRAPPER(int, Irecv,
     *request = virtRequest;
     retval = MPI_SUCCESS;
     DMTCP_PLUGIN_ENABLE_CKPT();
+    Logger::record("Irecv: msg is buffered");
     return retval;
   }
   LOG_PRE_Irecv(&status);
@@ -228,6 +230,7 @@ USER_DEFINED_WRAPPER(int, Irecv,
     logRequestInfo(*request, IRECV_REQUEST);
 #endif
   }
+  Logger::record("Irecv: req " + jalib::XToString(*request));
   LOG_POST_Irecv(source,tag,comm,&status,request,buf);
   DMTCP_PLUGIN_ENABLE_CKPT();
   return retval;

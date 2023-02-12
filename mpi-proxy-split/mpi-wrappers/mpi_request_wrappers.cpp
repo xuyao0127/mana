@@ -52,6 +52,7 @@ int MPI_Test_internal(MPI_Request *request, int *flag, MPI_Status *status,
   JUMP_TO_LOWER_HALF(lh_info.fsaddr);
   // MPI_Test can change the *request argument
   retval = NEXT_FUNC(Test)(&realRequest, flag, status);
+  Logger::record("Test: req " + jalib::XToString(*request));
 
   RETURN_TO_UPPER_HALF();
   return retval;
