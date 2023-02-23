@@ -227,20 +227,28 @@ USER_DEFINED_WRAPPER(int, Waitall, (int) count,
   MPI_Status *local_array_of_statuses = array_of_statuses;
 
   get_fortran_constants();
-  for (int i = 0; i < count; i++) {
-    /* FIXME: Is there a chance it gets a valid C address, which we shouldn't
-     * ignore?  Ideally, we should only check FORTRAN_MPI_STATUSES_IGNORE
-     * in the Fortran wrapper.
-     */
-    if (local_array_of_statuses != MPI_STATUSES_IGNORE &&
-        local_array_of_statuses != FORTRAN_MPI_STATUSES_IGNORE) {
-      retval = MPI_Wait(&local_array_of_requests[i],
-                        &local_array_of_statuses[i]);
-    } else {
-      retval = MPI_Wait(&local_array_of_requests[i], MPI_STATUS_IGNORE);
-    }
-    if (retval != MPI_SUCCESS) {
-      break;
+  int num_inactive_req = 0;
+  int flag;
+  while (num_inactive_req != count) {
+    num_inactive_req = 0;
+    for (int i = 0; i < count; i++) {
+      /* FIXME: Is there a chance it gets a valid C address, which we shouldn't
+       * ignore?  Ideally, we should only check FORTRAN_MPI_STATUSES_IGNORE
+       * in the Fortran wrapper.
+       */
+      if (local_array_of_statuses != MPI_STATUSES_IGNORE &&
+          local_array_of_statuses != FORTRAN_MPI_STATUSES_IGNORE) {
+        retval = MPI_Test(&local_array_of_requests[i], &flag,
+            &local_array_of_statuses[i]);
+      } else {
+        retval = MPI_Test(&local_array_of_requests[i], &flag, MPI_STATUS_IGNORE);
+      }
+      if (flag) {
+        num_inactive_req++;
+      }
+      if (retval != MPI_SUCCESS) {
+        break;
+      }
     }
   }
 #endif
