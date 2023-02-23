@@ -62,6 +62,9 @@ USER_DEFINED_WRAPPER(int, Test, (MPI_Request*) request,
                      (int*) flag, (MPI_Status*) status)
 {
   int retval;
+  if (*request == MPI_REQUEST_NULL + 1) {
+    *request = MPI_REQUEST_NULL;
+  }
   if (*request == MPI_REQUEST_NULL) {
     // *request might be in read-only memory. So we can't overwrite it with
     // MPI_REQUEST_NULL later.
@@ -113,7 +116,11 @@ USER_DEFINED_WRAPPER(int, Test, (MPI_Request*) request,
     clearPendingRequestFromLog(*request);
     REMOVE_OLD_REQUEST(*request);
     LOG_REMOVE_REQUEST(*request); // remove from record-replay log
-    *request = MPI_REQUEST_NULL;
+    if (mana_state == CKPT_P2P) {
+      *request = MPI_REQUEST_NULL + 1;
+    } else {
+      *request = MPI_REQUEST_NULL;
+    }
   }
   DMTCP_PLUGIN_ENABLE_CKPT();
   return retval;
@@ -256,7 +263,15 @@ USER_DEFINED_WRAPPER(int, Waitany, (int) count,
   *local_index = MPI_UNDEFINED;
   while (1) {
     for (int i = 0; i < count; i++) {
+      if (local_array_of_requests[i] == MPI_REQUEST_NULL + 1) {
+        // MPI_REQUEST_NULL + 1 can only be set by MANA while draining p2p
+        // messages. If it's encountered in MPI_Waitany, the request must
+        // be finished during checkpoint.
+        *local_index = i;
+        return retval;
+      }
       if (local_array_of_requests[i] == MPI_REQUEST_NULL) {
+        num_inactive_req++;
         continue;
       }
       all_null = false;
@@ -305,6 +320,9 @@ USER_DEFINED_WRAPPER(int, Waitany, (int) count,
 USER_DEFINED_WRAPPER(int, Wait, (MPI_Request*) request, (MPI_Status*) status)
 {
   int retval;
+  if (*request == MPI_REQUEST_NULL + 1) {
+    *request = MPI_REQUEST_NULL;
+  }
   if (*request == MPI_REQUEST_NULL) {
     // *request might be in read-only memory. So we can't overwrite it with
     // MPI_REQUEST_NULL later.
@@ -353,7 +371,11 @@ USER_DEFINED_WRAPPER(int, Wait, (MPI_Request*) request, (MPI_Status*) status)
       clearPendingRequestFromLog(*request); // Remove from g_nonblocking_calls
       REMOVE_OLD_REQUEST(*request); // Remove from virtual id
       LOG_REMOVE_REQUEST(*request); // Remove from record-replay log
-      *request = MPI_REQUEST_NULL;
+      if (mana_state == CKPT_P2P) {
+        *request = MPI_REQUEST_NULL + 1;
+      } else {
+        *request = MPI_REQUEST_NULL;
+      }
     }
     DMTCP_PLUGIN_ENABLE_CKPT();
   }
