@@ -68,4 +68,11 @@ void publishLogToCoordinator()
     kvdb::set(workerPath, "MpiLog", str);
 }
 
+void enable() {
+  enableLogging = true;
+}
+
+void disable() {
+  enableLogging = false;
+}
 }

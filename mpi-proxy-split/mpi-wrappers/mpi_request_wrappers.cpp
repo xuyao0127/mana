@@ -34,6 +34,7 @@
 #include "mpi_plugin.h"
 #include "mpi_nextfunc.h"
 #include "virtual-ids.h"
+#include "logger.h"
 // To support MANA_P2P_LOG and MANA_P2P_REPLAY:
 #include "p2p-deterministic.h"
 
@@ -124,6 +125,8 @@ USER_DEFINED_WRAPPER(int, Testall, (int) count,
                      (MPI_Status *) array_of_statuses)
 {
   // NOTE: See MPI_Testany below for the rationale for these variables.
+  Logger::record("Testall");
+  Logger::disable();
   int local_count = count;
   MPI_Request *local_array_of_requests = array_of_requests;
   int *local_flag = flag;
@@ -155,6 +158,7 @@ USER_DEFINED_WRAPPER(int, Testall, (int) count,
   if (incomplete) {
     *local_flag = 0;
   }
+  Logger::enable();
   return retval;
 }
 
@@ -171,6 +175,8 @@ USER_DEFINED_WRAPPER(int, Testany, (int) count,
   // only affect functions that pass an array from Fortran to C - namely
   // Testall, Testany, Testsome, Waitall, Waitany and Waitsome. We use a
   // temporary workaround below.
+  Logger::record("Testany");
+  Logger::disable();
   int local_count = count;
   MPI_Request *local_array_of_requests = array_of_requests;
   int *local_index = index;
@@ -193,6 +199,7 @@ USER_DEFINED_WRAPPER(int, Testany, (int) count,
       break;
     }
   }
+  Logger::enable();
   return retval;
 }
 
@@ -201,6 +208,8 @@ USER_DEFINED_WRAPPER(int, Waitall, (int) count,
                      (MPI_Status *) array_of_statuses)
 {
   // FIXME: Revisit this wrapper - call VIRTUAL_TO_REAL_REQUEST on array
+  Logger::record("Waitall");
+  Logger::disable();
   int retval = MPI_SUCCESS;
 #if 0
   DMTCP_PLUGIN_DISABLE_CKPT();
@@ -237,6 +246,7 @@ USER_DEFINED_WRAPPER(int, Waitall, (int) count,
     }
   }
 #endif
+  Logger::enable();
   return retval;
 }
 
@@ -245,6 +255,8 @@ USER_DEFINED_WRAPPER(int, Waitany, (int) count,
                      (MPI_Status *) status)
 {
   // NOTE: See MPI_Testany above for the rationale for these variables.
+  Logger::record("Waitany");
+  Logger::disable();
   int local_count = count;
   MPI_Request *local_array_of_requests = array_of_requests;
   int *local_index = index;
@@ -265,6 +277,7 @@ USER_DEFINED_WRAPPER(int, Waitany, (int) count,
                                  local_status, false);
       if (retval != MPI_SUCCESS) {
         DMTCP_PLUGIN_ENABLE_CKPT();
+        Logger::enable();
         return retval;
       }
       if (flag) {
@@ -291,12 +304,14 @@ USER_DEFINED_WRAPPER(int, Waitany, (int) count,
         *local_index = i;
 
         DMTCP_PLUGIN_ENABLE_CKPT();
+        Logger::enable();
         return retval;
       }
 
       DMTCP_PLUGIN_ENABLE_CKPT();
     }
     if (all_null) {
+      Logger::enable();
       return retval;
     }
   }
@@ -304,6 +319,8 @@ USER_DEFINED_WRAPPER(int, Waitany, (int) count,
 
 USER_DEFINED_WRAPPER(int, Wait, (MPI_Request*) request, (MPI_Status*) status)
 {
+  Logger::record("Wait");
+  Logger::disable();
   int retval;
   if (*request == MPI_REQUEST_NULL) {
     // *request might be in read-only memory. So we can't overwrite it with
@@ -357,6 +374,7 @@ USER_DEFINED_WRAPPER(int, Wait, (MPI_Request*) request, (MPI_Status*) status)
     }
     DMTCP_PLUGIN_ENABLE_CKPT();
   }
+  Logger::enable();
   return retval;
 }
 

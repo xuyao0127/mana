@@ -10,6 +10,8 @@ namespace Logger
     void record(dmtcp::string const& str);
     dmtcp::string getLogStr();
     void publishLogToCoordinator();
+    void disable();
+    void enable();
 };
 
 #endif // #ifndef __MANA_LOGGER_H__
