@@ -202,41 +202,38 @@ USER_DEFINED_WRAPPER(int, Waitall, (int) count,
 {
   // FIXME: Revisit this wrapper - call VIRTUAL_TO_REAL_REQUEST on array
   int retval = MPI_SUCCESS;
-#if 0
-  DMTCP_PLUGIN_DISABLE_CKPT();
-  JUMP_TO_LOWER_HALF(lh_info.fsaddr);
-  retval = NEXT_FUNC(Waitall)(count, array_of_requests, array_of_statuses);
-  RETURN_TO_UPPER_HALF();
-  if (retval == MPI_SUCCESS) {
-    for (int i = 0; i < count; i++) {
-      clearPendingRequestFromLog(&array_of_requests[i]);
-    }
-  }
-  DMTCP_PLUGIN_ENABLE_CKPT();
-#else
   // NOTE: See MPI_Testany above for the rationale for these variables.
   int local_count = count;
+  int all_completed = 0;
   MPI_Request *local_array_of_requests = array_of_requests;
   MPI_Status *local_array_of_statuses = array_of_statuses;
 
   get_fortran_constants();
-  for (int i = 0; i < count; i++) {
-    /* FIXME: Is there a chance it gets a valid C address, which we shouldn't
-     * ignore?  Ideally, we should only check FORTRAN_MPI_STATUSES_IGNORE
-     * in the Fortran wrapper.
-     */
-    if (local_array_of_statuses != MPI_STATUSES_IGNORE &&
-        local_array_of_statuses != FORTRAN_MPI_STATUSES_IGNORE) {
-      retval = MPI_Wait(&local_array_of_requests[i],
-                        &local_array_of_statuses[i]);
-    } else {
-      retval = MPI_Wait(&local_array_of_requests[i], MPI_STATUS_IGNORE);
-    }
-    if (retval != MPI_SUCCESS) {
-      break;
+  while (!all_completed) {
+    all_completed = 1;
+    for (int i = 0; i < count; i++) {
+      /* FIXME: Is there a chance it gets a valid C address, which we shouldn't
+       * ignore?  Ideally, we should only check FORTRAN_MPI_STATUSES_IGNORE
+       * in the Fortran wrapper.
+       */
+      int flag = 0;
+      if (local_array_of_statuses != MPI_STATUSES_IGNORE &&
+          local_array_of_statuses != FORTRAN_MPI_STATUSES_IGNORE) {
+        retval = MPI_Test(&local_array_of_requests[i], &flag,
+                          &local_array_of_statuses[i]);
+      } else {
+        retval = MPI_Test(&local_array_of_requests[i], &flag,
+                          MPI_STATUS_IGNORE);
+      }
+      if (!flag) {
+        all_completed = 0;
+      }
+
+      if (retval != MPI_SUCCESS) {
+        break;
+      }
     }
   }
-#endif
   return retval;
 }
 
