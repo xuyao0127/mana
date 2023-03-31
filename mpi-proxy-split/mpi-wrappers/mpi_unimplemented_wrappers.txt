@@ -22,10 +22,6 @@ int MPI_Iallgatherv(const void *sendbuf, int sendcount,
 int MPI_Iallreduce(const void *sendbuf, void *recvbuf, int count,
                             MPI_Datatype datatype, MPI_Op op, MPI_Comm comm,
                             MPI_Request *request);
-int MPI_Ialltoall(const void *sendbuf, int sendcount,
-                           MPI_Datatype sendtype, void *recvbuf, int recvcount,
-                           MPI_Datatype recvtype, MPI_Comm comm,
-                           MPI_Request *request);
 int MPI_Ialltoallv(const void *sendbuf, const int sendcounts[],
                             const int sdispls[], MPI_Datatype sendtype,
                             void *recvbuf, const int recvcounts[],

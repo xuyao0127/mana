@@ -31,42 +31,20 @@ int num_converged;
 reset_type_t reset_type;
 
 pthread_mutex_t seq_num_lock;
-sem_t user_thread_sem;
-sem_t ckpt_thread_sem;
+std::map<unsigned int, unsigned long> blocking_seq_num;
+std::map<unsigned int, unsigned long> blocking_target;
+std::map<unsigned int, unsigned long> nonblocking_seq_num;
+std::map<unsigned int, unsigned long> nonblocking_target;
+std::vector<MPI_Request*> active_requests;
 
-/* Freepass implemented using semaphore to avoid the following situation:
-*  T1: current_phase = STOP_BEFORE_CS;
-*  T2: freepass = true;
-*      while (current_phase == STOP_BEFORE_CS);
-*  T1: while (!freepass && ckpt_pending);
-*      freepass = false;
-*      current_phase = IN_CS;
-*      ....
-*      current_phase = STOP_BEFORE_CS;
-*
-*  Note that this situation can still occur with only a semaphore to
-*  implement the freepass, so another semaphore is required to
-*  enforce that the thread in commit_begin cannot enter the state
-*  STOP_BEFORE_CS until we verify that the thread giving the free pass
-*  has checked the thread state
-*/
-sem_t freepass_sem;
-sem_t freepass_sync_sem;
-
-std::map<unsigned int, unsigned long> seq_num;
-std::map<unsigned int, unsigned long> target;
-typedef std::pair<unsigned int, unsigned long> comm_seq_pair_t;
-
-constexpr const char *comm_seq_max_db = "/plugin/MANA/comm-seq-max";
+constexpr const char *blocking_comm_seq_max_db =
+  "/plugin/MANA/blocking-comm-seq-max";
+constexpr const char *nonblocking_comm_seq_max_db =
+  "/plugin/MANA/nonblocking-comm-seq-max";
 
 void seq_num_init() {
   ckpt_pending = false;
   pthread_mutex_init(&seq_num_lock, NULL);
-  sem_init(&user_thread_sem, 0, 0);
-  sem_init(&ckpt_thread_sem, 0, 0);
-  sem_init(&freepass_sem, 0, 0);
-  sem_init(&freepass_sync_sem, 0, 0);
-  sem_post(&freepass_sync_sem);
 }
 
 void seq_num_reset(reset_type_t type) {
@@ -75,37 +53,55 @@ void seq_num_reset(reset_type_t type) {
 
 void seq_num_destroy() {
   pthread_mutex_destroy(&seq_num_lock);
-  sem_destroy(&user_thread_sem);
-  sem_destroy(&ckpt_thread_sem);
-  sem_destroy(&freepass_sem);
-  sem_destroy(&freepass_sync_sem);
 }
 
-int print_seq_nums() {
+void print_seq_nums() {
   unsigned int comm_id;
   unsigned long seq;
-  int target_reached = 1;
-  for (comm_seq_pair_t pair : seq_num) {
+  printf("blocking\n");
+  for (comm_seq_pair_t pair : nonblocking_seq_num) {
+    comm_id = pair.first;
+    seq = pair.second;
+    printf("%d, %u, %lu\n", g_world_rank, comm_id, seq);
+  }
+  printf("nonblocking\n");
+  for (comm_seq_pair_t pair : nonblocking_seq_num) {
     comm_id = pair.first;
     seq = pair.second;
     printf("%d, %u, %lu\n", g_world_rank, comm_id, seq);
   }
   fflush(stdout);
-  return target_reached;
 }
 
 int check_seq_nums(bool exclusive) {
   unsigned int comm_id;
+  unsigned long seq_num;
   int target_reached = 1;
-  for (comm_seq_pair_t pair : seq_num) {
+  for (comm_seq_pair_t pair : blocking_seq_num) {
     comm_id = pair.first;
+    seq_num = pair.second;
     if (exclusive) {
-      if (target[comm_id] + 1 > seq_num[comm_id]) {
+      if (blocking_target[comm_id] + 1 > seq_num) {
         target_reached = 0;
         break;
       }
     } else {
-      if (target[comm_id] > seq_num[comm_id]) {
+      if (blocking_target[comm_id] > seq_num) {
+        target_reached = 0;
+        break;
+      }
+    }
+  }
+  for (comm_seq_pair_t pair : nonblocking_seq_num) {
+    comm_id = pair.first;
+    seq_num = pair.second;
+    if (exclusive) {
+      if (nonblocking_target[comm_id] + 1 > seq_num) {
+        target_reached = 0;
+        break;
+      }
+    } else {
+      if (nonblocking_target[comm_id] > seq_num) {
         target_reached = 0;
         break;
       }
@@ -120,9 +116,9 @@ int twoPhaseCommit(MPI_Comm comm,
     return doRealCollectiveComm(); // lambda function: already captured args
   }
 
-  commit_begin(comm, false);
+  commit_begin(comm, false, true);
   int retval = doRealCollectiveComm();
-  commit_finish(comm, false);
+  commit_finish(comm, false, true);
   return retval;
 }
 
@@ -149,11 +145,6 @@ void seq_num_broadcast(MPI_Comm comm, unsigned long new_target) {
       NEXT_FUNC(Send)(&msg, 2, MPI_UNSIGNED_LONG, world_rank,
                       0, real_world_comm);
       RETURN_TO_UPPER_HALF();
-#ifdef DEBUG_SEQ_NUM
-      printf("rank %d sending to rank %d new target comm %u seq %lu target %lu\n",
-             g_world_rank, world_rank, comm_gid, seq_num[comm_gid], new_target);
-      fflush(stdout);
-#endif
     }
   }
   JUMP_TO_LOWER_HALF(lh_info.fsaddr);
@@ -162,10 +153,12 @@ void seq_num_broadcast(MPI_Comm comm, unsigned long new_target) {
   RETURN_TO_UPPER_HALF();
 }
 
-void commit_begin(MPI_Comm comm, bool passthrough) {
+void commit_begin(MPI_Comm comm, bool passthrough, bool blocking) {
   if (mana_state == RESTART_REPLAY || comm == MPI_COMM_NULL) {
     return;
   }
+  comm_seq_t &seq_num = blocking ? blocking_seq_num : nonblocking_seq_num;
+  comm_seq_t &target = blocking ? blocking_target : nonblocking_target;
   while (ckpt_pending && check_seq_nums(passthrough)) {
     MPI_Status status;
     int flag;
@@ -184,11 +177,6 @@ void commit_begin(MPI_Comm comm, bool passthrough) {
         target.find(updated_comm);
       if (it != target.end() && it->second < updated_target) {
         target[updated_comm] = updated_target;
-#ifdef DEBUG_SEQ_NUM
-        printf("rank %d received new target comm %u seq %lu target %lu\n",
-            g_world_rank, updated_comm, seq_num[updated_comm], updated_target);
-        fflush(stdout);
-#endif
       }
     }
   }
@@ -197,16 +185,13 @@ void commit_begin(MPI_Comm comm, bool passthrough) {
   unsigned int comm_gid = VirtualGlobalCommId::instance().getGlobalId(comm);
   seq_num[comm_gid]++;
   pthread_mutex_unlock(&seq_num_lock);
-#ifdef DEBUG_SEQ_NUM
-  // print_seq_nums();
-#endif
   if (ckpt_pending && seq_num[comm_gid] > target[comm_gid]) {
     target[comm_gid] = seq_num[comm_gid];
     seq_num_broadcast(comm, seq_num[comm_gid]);
   }
 }
 
-void commit_finish(MPI_Comm comm, bool passthrough) {
+void commit_finish(MPI_Comm comm, bool passthrough, bool blocking) {
   if (mana_state == RESTART_REPLAY) {
     return;
   }
@@ -214,6 +199,8 @@ void commit_finish(MPI_Comm comm, bool passthrough) {
   if (passthrough) {
     return;
   }
+  comm_seq_t &seq_num = blocking ? blocking_seq_num : nonblocking_seq_num;
+  comm_seq_t &target = blocking ? blocking_target : nonblocking_target;
   while (ckpt_pending && check_seq_nums(false)) {
     MPI_Status status;
     int flag;
@@ -243,30 +230,44 @@ void commit_finish(MPI_Comm comm, bool passthrough) {
 }
 
 void upload_seq_num() {
-  for (comm_seq_pair_t pair : seq_num) {
+  for (comm_seq_pair_t pair : blocking_seq_num) {
     dmtcp::string comm_id_str(jalib::XToString(pair.first));
     unsigned int seq = pair.second;
-    JASSERT(dmtcp::kvdb::request64(KVDBRequest::MAX, comm_seq_max_db,
+    JASSERT(dmtcp::kvdb::request64(KVDBRequest::MAX, blocking_comm_seq_max_db,
+                                   comm_id_str, seq) == KVDBResponse::SUCCESS);
+  }
+  for (comm_seq_pair_t pair : nonblocking_seq_num) {
+    dmtcp::string comm_id_str(jalib::XToString(pair.first));
+    unsigned int seq = pair.second;
+    JASSERT(dmtcp::kvdb::request64(KVDBRequest::MAX,
+                                   nonblocking_comm_seq_max_db,
                                    comm_id_str, seq) == KVDBResponse::SUCCESS);
   }
 }
 
-void download_targets(std::map<unsigned int, unsigned long> &target) {
+void download_targets() {
   int64_t max_seq = 0;
   unsigned int comm_id;
-  for (comm_seq_pair_t pair : seq_num) {
+  for (comm_seq_pair_t pair : blocking_seq_num) {
     comm_id = pair.first;
     dmtcp::string comm_id_str(jalib::XToString(pair.first));
-    JASSERT(dmtcp::kvdb::get64(comm_seq_max_db, comm_id_str, &max_seq) ==
+    JASSERT(dmtcp::kvdb::get64(blocking_comm_seq_max_db, comm_id_str, &max_seq) ==
             KVDBResponse::SUCCESS);
-    target[comm_id] = max_seq;
+    blocking_target[comm_id] = max_seq;
+  }
+  for (comm_seq_pair_t pair : nonblocking_seq_num) {
+    comm_id = pair.first;
+    dmtcp::string comm_id_str(jalib::XToString(pair.first));
+    JASSERT(dmtcp::kvdb::get64(nonblocking_comm_seq_max_db, comm_id_str, &max_seq) ==
+            KVDBResponse::SUCCESS);
+    nonblocking_target[comm_id] = max_seq;
   }
 }
 
-void share_seq_nums(std::map<unsigned int, unsigned long> &target) {
+void share_seq_nums() {
   upload_seq_num();
   dmtcp_global_barrier("mana/share-seq-num");
-  download_targets(target);
+  download_targets();
 }
 
 void drain_mpi_collective() {
@@ -275,7 +276,7 @@ void drain_mpi_collective() {
   int64_t in_cs = 0;
   pthread_mutex_lock(&seq_num_lock);
   ckpt_pending = true;
-  share_seq_nums(target);
+  share_seq_nums();
   pthread_mutex_unlock(&seq_num_lock);
   while (1) {
     char key[32] = {0};
@@ -302,5 +303,18 @@ void drain_mpi_collective() {
       break;
     }
     round_num++;
+  }
+  while (!active_requests.empty()) {
+    std::vector<MPI_Request*>::iterator it = active_requests.begin();
+    while (it != active_requests.end()) {
+      int flag = 0;
+      // FIXME: need to handle MPI status in user's program.
+      MPI_Test(*it, &flag, MPI_STATUS_IGNORE);
+      if (flag) {
+        active_requests.erase(it);
+      } else {
+        it++;
+      }
+    }
   }
 }

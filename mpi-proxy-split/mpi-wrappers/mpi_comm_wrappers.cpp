@@ -133,10 +133,12 @@ USER_DEFINED_WRAPPER(int, Comm_create, (MPI_Comm) comm, (MPI_Group) group,
       *newcomm = virtComm;
       active_comms.insert(virtComm);
       std::map<unsigned int, unsigned long>::iterator it =
-        seq_num.find(gid);
-      if (it == seq_num.end()) {
-        seq_num[gid] = 0;
-        target[gid] = 0;
+        blocking_seq_num.find(gid);
+      if (it == blocking_seq_num.end()) {
+        blocking_seq_num[gid] = 0;
+        blocking_target[gid] = 0;
+        nonblocking_seq_num[gid] = 0;
+        nonblocking_target[gid] = 0;
       }
       LOG_CALL(restoreComms, Comm_create, comm, group, virtComm);
     }

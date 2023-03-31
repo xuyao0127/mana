@@ -44,18 +44,24 @@ typedef struct __rank_state_t
 // Global communicator for MANA internal use
 extern MPI_Comm g_world_comm;
 
-extern std::map<unsigned int, unsigned long> seq_num;
-extern std::map<unsigned int, unsigned long> target;
+extern std::map<unsigned int, unsigned long> blocking_seq_num;
+extern std::map<unsigned int, unsigned long> blocking_target;
+extern std::map<unsigned int, unsigned long> nonblocking_seq_num;
+extern std::map<unsigned int, unsigned long> nonblocking_target;
+extern std::vector<MPI_Request*> active_requests;
+
+typedef std::map<unsigned int, unsigned long> comm_seq_t;
+typedef std::pair<unsigned int, unsigned long> comm_seq_pair_t;
 
 // The main functions of the sequence number algorithm for MPI collectives
-void commit_begin(MPI_Comm comm, bool passthrough);
-void commit_finish(MPI_Comm comm, bool passthrough);
+void commit_begin(MPI_Comm comm, bool passthrough, bool blocking);
+void commit_finish(MPI_Comm comm, bool passthrough, bool blocking);
 
 int twoPhaseCommit(MPI_Comm comm, std::function<int(void)>doRealCollectiveComm);
 void drain_mpi_collective();
-void share_seq_nums(std::map<unsigned int, unsigned long> &target);
+void share_seq_nums();
 int check_seq_nums(bool exclusive);
-int print_seq_nums();
+void print_seq_nums();
 void seq_num_init();
 void seq_num_destroy();
 void seq_num_reset(reset_type_t reset_type);
